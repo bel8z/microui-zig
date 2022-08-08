@@ -27,7 +27,6 @@ pub fn build(b: *Builder) void {
         &.{
             "src/microui.c",
             "demo/main.c",
-            "demo/demo.c",
             "demo/renderer.c",
         },
         &.{

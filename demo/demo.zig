@@ -127,5 +127,7 @@ export fn textHeight(font: c.mu_Font) c_int {
 }
 
 fn process_frame(ctx: *c.mu_Context) void {
+    c.mu_begin(ctx);
     c.test_window(ctx, &bg);
+    c.mu_end(ctx);
 }
