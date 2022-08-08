@@ -28,12 +28,13 @@ pub fn build(b: *Builder) void {
             "demo/renderer.c",
         },
         &.{
-            // "-std=c11",
-            // "-pedantic",
-            // "-Werror",
-            // "-Wall",
+            "-std=c11",
+            "-pedantic",
+            "-Werror",
+            "-Wall",
+            "-Wpedantic",
+            // TODO (Matteo): fix compiles with this flag enabled
             // "-Wextra",
-            // "-Wpedantic",
         },
     );
 
