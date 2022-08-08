@@ -1,6 +1,7 @@
-#include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
+
 #include <assert.h>
+
 #include "renderer.h"
 #include "atlas.inl"
 
@@ -11,19 +12,13 @@ static GLfloat  vert_buf[BUFFER_SIZE *  8];
 static GLubyte color_buf[BUFFER_SIZE * 16];
 static GLuint  index_buf[BUFFER_SIZE *  6];
 
-static int width  = 800;
-static int height = 600;
-static int buf_idx;
+static int g_width;
+static int g_height;
+static int g_buf_idx;
 
-static SDL_Window *window;
-
-
-void r_init(void) {
-  /* init SDL window */
-  window = SDL_CreateWindow(
-    NULL, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-    width, height, SDL_WINDOW_OPENGL);
-  SDL_GL_CreateContext(window);
+void r_init(int width, int height) {
+  g_width = width;
+  g_height = height;
 
   /* init gl */
   glEnable(GL_BLEND);
@@ -48,14 +43,14 @@ void r_init(void) {
 }
 
 
-static void flush(void) {
-  if (buf_idx == 0) { return; }
+void r_flush(void) {
+  if (g_buf_idx == 0) { return; }
 
-  glViewport(0, 0, width, height);
+  glViewport(0, 0, g_width, g_height);
   glMatrixMode(GL_PROJECTION);
   glPushMatrix();
   glLoadIdentity();
-  glOrtho(0.0f, width, height, 0.0f, -1.0f, +1.0f);
+  glOrtho(0.0f, g_width, g_height, 0.0f, -1.0f, +1.0f);
   glMatrixMode(GL_MODELVIEW);
   glPushMatrix();
   glLoadIdentity();
@@ -63,25 +58,25 @@ static void flush(void) {
   glTexCoordPointer(2, GL_FLOAT, 0, tex_buf);
   glVertexPointer(2, GL_FLOAT, 0, vert_buf);
   glColorPointer(4, GL_UNSIGNED_BYTE, 0, color_buf);
-  glDrawElements(GL_TRIANGLES, buf_idx * 6, GL_UNSIGNED_INT, index_buf);
+  glDrawElements(GL_TRIANGLES, g_buf_idx * 6, GL_UNSIGNED_INT, index_buf);
 
   glMatrixMode(GL_MODELVIEW);
   glPopMatrix();
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
 
-  buf_idx = 0;
+  g_buf_idx = 0;
 }
 
 
 static void push_quad(mu_Rect dst, mu_Rect src, mu_Color color) {
-  if (buf_idx == BUFFER_SIZE) { flush(); }
+  if (g_buf_idx == BUFFER_SIZE) { r_flush(); }
 
-  int texvert_idx = buf_idx *  8;
-  int   color_idx = buf_idx * 16;
-  int element_idx = buf_idx *  4;
-  int   index_idx = buf_idx *  6;
-  buf_idx++;
+  int texvert_idx = g_buf_idx *  8;
+  int   color_idx = g_buf_idx * 16;
+  int element_idx = g_buf_idx *  4;
+  int   index_idx = g_buf_idx *  6;
+  g_buf_idx++;
 
   /* update texture buffer */
   float x = src.x / (float) ATLAS_WIDTH;
@@ -167,19 +162,13 @@ int r_get_text_height(void) {
 
 
 void r_set_clip_rect(mu_Rect rect) {
-  flush();
-  glScissor(rect.x, height - (rect.y + rect.h), rect.w, rect.h);
+  r_flush();
+  glScissor(rect.x, g_height - (rect.y + rect.h), rect.w, rect.h);
 }
 
 
 void r_clear(mu_Color clr) {
-  flush();
+  r_flush();
   glClearColor(clr.r / 255., clr.g / 255., clr.b / 255., clr.a / 255.);
   glClear(GL_COLOR_BUFFER_BIT);
-}
-
-
-void r_present(void) {
-  flush();
-  SDL_GL_SwapWindow(window);
 }

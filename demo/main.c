@@ -235,7 +235,16 @@ static int text_height(mu_Font font) {
 int main(int argc, char **argv) {
   /* init SDL and renderer */
   SDL_Init(SDL_INIT_EVERYTHING);
-  r_init();
+
+ int width  = 800;
+ int height = 600;
+
+ SDL_Window *window = SDL_CreateWindow(
+    NULL, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+    width, height, SDL_WINDOW_OPENGL);
+  SDL_GL_CreateContext(window);
+
+  r_init(width, height);
 
   /* init microui */
   mu_Context *ctx = malloc(sizeof(mu_Context));
@@ -286,7 +295,9 @@ int main(int argc, char **argv) {
         case MU_COMMAND_CLIP: r_set_clip_rect(cmd->clip.rect); break;
       }
     }
-    r_present();
+    r_flush();
+    SDL_GL_SwapWindow(window);
+
   }
 
   return 0;
