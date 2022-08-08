@@ -15,16 +15,17 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
 
     var run_step = b.step("demo", "Run the demo app");
-    var demo = b.addExecutable("microui-demo", null);
+    var demo = b.addExecutable("microui-demo", "demo/demo.zig");
     demo.setTarget(target);
     demo.setBuildMode(mode);
     demo.install();
 
     demo.addIncludeDir("src");
+    demo.addIncludeDir("demo");
     demo.addCSourceFiles(
         &.{
             "src/microui.c",
-            "demo/main.c",
+            // "demo/main.c",
             "demo/renderer.c",
         },
         &.{
