@@ -27,7 +27,7 @@ const key_map = init: {
 
 var logbuf = [_]u8{0} * 64000;
 var logbuf_updated = false;
-var bg = [_]c_int{ 90, 95, 100 };
+var bg = [_]f32{ 90, 95, 100 };
 
 pub fn main() !void {
     // init SDL and renderer
@@ -95,7 +95,12 @@ pub fn main() !void {
         process_frame(ctx);
 
         // render
-        c.r_clear(c.mu_color(bg[0], bg[1], bg[2], 255));
+        c.r_clear(c.mu_color(
+            @floatToInt(u8, bg[0]),
+            @floatToInt(u8, bg[1]),
+            @floatToInt(u8, bg[2]),
+            255,
+        ));
         var maybe_cmd: ?*c.mu_Command = null;
         while (c.mu_next_command(ctx, &maybe_cmd) != 0) {
             const cmd = maybe_cmd orelse unreachable;
@@ -122,5 +127,5 @@ export fn textHeight(font: c.mu_Font) c_int {
 }
 
 fn process_frame(ctx: *c.mu_Context) void {
-    _ = ctx;
+    c.test_window(ctx, &bg);
 }
