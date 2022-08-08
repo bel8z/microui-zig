@@ -15,13 +15,13 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
 
     var run_step = b.step("demo", "Run the demo app");
-    var exe = b.addExecutable("microui-demo", null);
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.install();
+    var demo = b.addExecutable("microui-demo", null);
+    demo.setTarget(target);
+    demo.setBuildMode(mode);
+    demo.install();
 
-    exe.addIncludeDir("src");
-    exe.addCSourceFiles(
+    demo.addIncludeDir("src");
+    demo.addCSourceFiles(
         &.{
             "src/microui.c",
             "demo/main.c",
@@ -37,21 +37,21 @@ pub fn build(b: *Builder) void {
         },
     );
 
-    exe.linkLibC();
+    demo.linkLibC();
 
     if (target.isWindows()) {
-        exe.linkSystemLibrary("kernel32");
-        exe.linkSystemLibrary("user32");
-        exe.linkSystemLibrary("gdi32");
-        exe.linkSystemLibrary("opengl32");
-        exe.linkSystemLibrary("setupapi");
-        exe.linkSystemLibrary("winmm");
-        exe.linkSystemLibrary("imm32");
-        exe.linkSystemLibrary("version");
-        exe.linkSystemLibrary("oleaut32");
-        exe.linkSystemLibrary("ole32");
+        demo.linkSystemLibrary("kernel32");
+        demo.linkSystemLibrary("user32");
+        demo.linkSystemLibrary("gdi32");
+        demo.linkSystemLibrary("opengl32");
+        demo.linkSystemLibrary("setupapi");
+        demo.linkSystemLibrary("winmm");
+        demo.linkSystemLibrary("imm32");
+        demo.linkSystemLibrary("version");
+        demo.linkSystemLibrary("oleaut32");
+        demo.linkSystemLibrary("ole32");
 
-        exe.subsystem = .Windows;
+        demo.subsystem = .Windows;
 
         const path =
             switch (target.getCpuArch()) {
@@ -60,26 +60,26 @@ pub fn build(b: *Builder) void {
             else => unreachable,
         };
 
-        exe.addIncludeDir(std.mem.concat(b.allocator, u8, &.{ path, "/include" }) catch unreachable);
-        exe.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2.a" }) catch unreachable);
-        exe.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2main.a" }) catch unreachable);
+        demo.addIncludeDir(std.mem.concat(b.allocator, u8, &.{ path, "/include" }) catch unreachable);
+        demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2.a" }) catch unreachable);
+        demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2main.a" }) catch unreachable);
     } else {
-        exe.linkSystemLibrary("libsdl2");
-        exe.linkSystemLibrary("GL");
+        demo.linkSystemLibrary("libsdl2");
+        demo.linkSystemLibrary("GL");
     }
 
     // Configure run step
-    const run_cmd = exe.run();
+    const run_cmd = demo.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
 
     run_step.dependOn(&run_cmd.step);
 
-    // const exe_tests = b.addTest("src/tests.zig");
-    // exe_tests.setTarget(target);
-    // exe_tests.setBuildMode(mode);
-    // exe_tests.addPackage(bolts);
+    // Configure test step
+    const tests = b.addTest("src/microui.zig");
+    tests.setTarget(target);
+    tests.setBuildMode(mode);
 
-    // const test_step = b.step("test", "Run unit tests");
-    // test_step.dependOn(&exe_tests.step);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&tests.step);
 }
