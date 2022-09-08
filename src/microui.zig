@@ -89,5 +89,37 @@ fn Stack(comptime T: type, comptime N: usize) type {
     return extern struct {
         items: [N]T = undefined,
         idx: usize = 0,
+
+        const Self = @This();
+
+        fn clear(self: *Self) void {
+            self.idx = 0;
+        }
+
+        fn push(self: *Self, item: T) void {
+            std.debug.assert(self.idx < self.items.len);
+            self.items[self.idx] = item;
+            self.idx += 1;
+        }
+
+        fn pop(self: *Self) T {
+            std.debug.assert(self.idx > 0);
+            self.idx -= 1;
+            return self.items[self.idx];
+        }
     };
+}
+
+test "Stack" {
+    const expect = std.testing.expect;
+
+    var s = Stack(i32, 5){};
+    try expect(s.idx == 0);
+
+    try expect(s.pop() == 4);
+    try expect(s.pop() == 3);
+    try expect(s.pop() == 2);
+    try expect(s.pop() == 1);
+    try expect(s.pop() == 0);
+    try expect(s.idx == 0);
 }
