@@ -114,7 +114,14 @@ test "Stack" {
     const expect = std.testing.expect;
 
     var s = Stack(i32, 5){};
+
     try expect(s.idx == 0);
+
+    s.push(0);
+    s.push(1);
+    s.push(2);
+    s.push(3);
+    s.push(4);
 
     try expect(s.pop() == 4);
     try expect(s.pop() == 3);
