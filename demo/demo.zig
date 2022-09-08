@@ -92,7 +92,7 @@ pub fn main() !void {
         }
 
         // process frame
-        process_frame(ctx);
+        processFrame(ctx);
 
         // render
         c.r_clear(c.mu_color(
@@ -126,8 +126,17 @@ export fn textHeight(font: c.mu_Font) c_int {
     return c.r_get_text_height();
 }
 
-fn process_frame(ctx: *c.mu_Context) void {
+fn processFrame(ctx: *c.mu_Context) void {
     c.mu_begin(ctx);
-    c.test_window(ctx, &bg);
+    testWindow(ctx);
     c.mu_end(ctx);
+}
+
+fn testWindow(ctx: *c.mu_Context) void {
+    if (c.mu_begin_window(ctx, "Demo Window", c.mu_rect(40, 40, 300, 450)) == 0) {
+        // var win = c.mu_get_current_container(ctx);
+        // win.*.rect.w = std.math.max(win.*.rect.w, 240);
+        // win.*.rect.h = std.math.max(win.*.rect.h, 300);
+        c.mu_end_window(ctx);
+    }
 }

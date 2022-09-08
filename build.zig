@@ -3,43 +3,12 @@ const builtin = @import("builtin");
 
 const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
-
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
-
-    var run_step = b.step("demo", "Run the demo app");
-    var demo = b.addExecutable("microui-demo", null);
-    // var demo = b.addExecutable("microui-demo", "demo/demo.zig");
-    demo.setTarget(target);
-    demo.setBuildMode(mode);
-    demo.install();
-
-    demo.addIncludeDir("src");
-    demo.addIncludeDir("demo");
-    demo.addCSourceFiles(
-        &.{
-            "src/microui.c",
-            "demo/main.c",
-            "demo/renderer.c",
-        },
-        &.{
-            "-std=c11",
-            "-pedantic",
-            "-Werror",
-            "-Wall",
-            "-Wpedantic",
-            // TODO (Matteo): fix compiles with this flag enabled
-            // "-Wextra",
-        },
-    );
-
+fn setupDemo(
+    b: *Builder,
+    target: std.zig.CrossTarget,
+    demo: *std.build.LibExeObjStep,
+    run_step: *std.build.Step,
+) void {
     demo.linkLibC();
 
     if (target.isWindows()) {
@@ -71,12 +40,70 @@ pub fn build(b: *Builder) void {
         demo.linkSystemLibrary("GL");
     }
 
-    // Configure run step
     const run_cmd = demo.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
 
     run_step.dependOn(&run_cmd.step);
+}
+
+pub fn build(b: *Builder) void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
+    const target = b.standardTargetOptions(.{});
+
+    // Standard release options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
+    const mode = b.standardReleaseOptions();
+
+    const flags = [_][]const u8{
+        "-std=c11",
+        "-pedantic",
+        "-Werror",
+        "-Wall",
+        "-Wpedantic",
+        // TODO (Matteo): fix compiles with this flag enabled
+        // "-Wextra",
+    };
+
+    var lib = b.addStaticLibrary("microui", null);
+    lib.setTarget(target);
+    lib.setBuildMode(mode);
+    lib.install();
+    lib.linkLibC();
+    lib.addIncludeDir("src");
+    lib.addCSourceFile("src/microui.c", &flags);
+
+    var demo_c = b.addExecutable("microui-demo-c", null);
+    demo_c.setTarget(target);
+    demo_c.setBuildMode(mode);
+    demo_c.install();
+    demo_c.addIncludeDir("src");
+    demo_c.addIncludeDir("demo");
+    demo_c.addCSourceFiles(
+        &.{
+            "demo/main.c",
+            "demo/renderer.c",
+        },
+        &flags,
+    );
+    demo_c.linkLibrary(lib);
+    setupDemo(b, target, demo_c, b.step("c", "Run the C demo app"));
+
+    var demo_z = b.addExecutable("microui-demo-z", "demo/demo.zig");
+    demo_z.setTarget(target);
+    demo_z.setBuildMode(mode);
+    demo_z.install();
+    demo_z.addIncludeDir("src");
+    demo_z.addIncludeDir("demo");
+    demo_z.addCSourceFiles(
+        &.{"demo/renderer.c"},
+        &flags,
+    );
+    demo_z.linkLibrary(lib);
+    setupDemo(b, target, demo_z, b.step("z", "Run the Zig demo app"));
 
     // Configure test step
     const tests = b.addTest("src/microui.zig");
