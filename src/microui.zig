@@ -28,13 +28,65 @@ pub const Vec2 = struct { x: i32 = 0, y: i32 = 0 };
 pub const Rect = struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
 pub const Color = struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
 
+pub const ColorId = enum(u4) {
+    Text,
+    Border,
+    WindowBg,
+    TitleBg,
+    TitleText,
+    PanelBg,
+    Button,
+    ButtonHover,
+    ButtonFocus,
+    Base,
+    BaseHover,
+    BaseFocus,
+    ScrollBase,
+    ScrollThumb,
+};
+
 pub const PoolItem = struct { id: Id, last_update: i32 };
 
-pub const Layout = struct {};
-pub const Container = struct {};
-pub const Style = struct {};
+pub const Command = struct {};
+
+pub const Container = struct {
+    head: *Command,
+    tail: *Command,
+    rect: Rect,
+    body: Rect,
+    content_size: Vec2,
+    scroll: Vec2,
+    zindex: i32,
+    open: bool,
+};
+
+pub const Style = struct {
+    font: Font,
+    size: Vec2,
+    padding: i32,
+    spacing: i32,
+    indent: i32,
+    title_height: i32,
+    scrollbar_size: i32,
+    thumb_size: i32,
+    colors: [memberCount(ColorId)]Color,
+};
 
 pub fn Context(comptime config: Config) type {
+    const Layout = struct {
+        body: Rect,
+        next: Rect,
+        position: Vec2,
+        size: Vec2,
+        max: Vec2,
+        widths: [config.max_widths]i32,
+        item: i32,
+        item_index: i32,
+        next_row: i32,
+        next_type: i32,
+        indent: i32,
+    };
+
     return extern struct {
         pub const Real = config.real;
 
@@ -105,6 +157,8 @@ pub fn Context(comptime config: Config) type {
     };
 }
 
+//============//
+
 fn Stack(comptime T: type, comptime N: usize) type {
     return extern struct {
         items: [N]T = undefined,
@@ -155,6 +209,8 @@ test "Stack" {
     try expect(s.idx == 0);
 }
 
+//============//
+
 //  32bit fnv-1a hash
 
 const HASH_INITIAL: Id = 2166136261;
@@ -184,4 +240,15 @@ test "Hash" {
 
     try expect(h1 != h2);
     try expect(h2 != hash(str2, HASH_INITIAL));
+}
+
+//============//
+
+fn memberCount(comptime Enum: type) usize {
+    return @typeInfo(Enum).Enum.fields.len;
+}
+
+test "memberCount" {
+    const expect = std.testing.expect;
+    try expect(memberCount(ColorId) == 14);
 }
