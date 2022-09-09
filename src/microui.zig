@@ -82,6 +82,26 @@ pub fn Context(comptime config: Config) type {
         key_down: i32 = 0,
         key_pressed: i32 = 0,
         input_text: [32]u8 = undefined,
+
+        const Self = @This();
+
+        //=== ID management ===//
+
+        pub fn getId(self: *Self, data: []const u8) Id {
+            self.last_id = hash(data, self.id_stack.peek() orelse HASH_INITIAL);
+            return self.last_id;
+        }
+
+        pub fn pushId(self: *Self, data: []const u8) void {
+            self.id_stack.push(self.getId(data));
+        }
+
+        pub fn popId(self: *Self) void {
+            self.id_stack.pop();
+        }
+
+        //=== Internals ===//
+
     };
 }
 
@@ -107,6 +127,10 @@ fn Stack(comptime T: type, comptime N: usize) type {
             self.idx -= 1;
             return self.items[self.idx];
         }
+
+        fn peek(self: *const Self) ?T {
+            return if (self.idx == 0) null else self.items[self.idx - 1];
+        }
     };
 }
 
@@ -129,4 +153,35 @@ test "Stack" {
     try expect(s.pop() == 1);
     try expect(s.pop() == 0);
     try expect(s.idx == 0);
+}
+
+//  32bit fnv-1a hash
+
+const HASH_INITIAL: Id = 2166136261;
+
+fn hash(data: []const u8, hash_in: Id) Id {
+    var hash_out = hash_in;
+
+    for (data) |byte| {
+        hash_out = (hash_out ^ byte) * 16777619;
+    }
+
+    return hash_out;
+}
+
+test "Hash" {
+    const expect = std.testing.expect;
+
+    const str1 = "Hello MicroUi!";
+    const str2 = "Hallo microui!";
+
+    const h1 = hash(str1, HASH_INITIAL);
+
+    try expect(h1 == hash(str1, HASH_INITIAL));
+    try expect(h1 != hash(str2, HASH_INITIAL));
+
+    const h2 = hash(str2, h1);
+
+    try expect(h1 != h2);
+    try expect(h2 != hash(str2, HASH_INITIAL));
 }
