@@ -130,11 +130,15 @@ pub const Keys = packed struct {
 
 pub const PoolItem = struct { id: Id, last_update: i32 };
 
+// TODO (Matteo): Rethink command implementation.
+// The current solution works pretty well in C but seems a bit foreign in Zig;
+// furthermore, I'd like to provide easy extension with user-defined commands.
+
 pub const BaseCommand = extern struct { type: CommandId, size: usize };
-pub const JumpCommand = extern struct { base: BaseCommand, dst: *BaseCommand };
+pub const JumpCommand = extern struct { base: BaseCommand, dst: usize };
 pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
 pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
-pub const TextCommand = extern struct { base: BaseCommand, font: Font, pos: Vec2, color: Color, str: []u8 };
+pub const TextCommand = extern struct { base: BaseCommand, font: Font, pos: Vec2, color: Color, str: [*:0]u8 };
 pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
 
 pub const Command = extern union {
@@ -185,7 +189,7 @@ pub fn Context(comptime config: Config) type {
         indent: i32,
     };
 
-    return extern struct {
+    return struct {
         pub const Real = config.real;
 
         // callbacks
@@ -210,7 +214,7 @@ pub fn Context(comptime config: Config) type {
         number_edit: Id = undefined,
 
         // stacks
-        command_list: Stack(u8, config.command_list_size) = .{},
+        command_list: CommandList(config.command_list_size) = .{},
         root_list: Stack(*Container, config.rootlist_size) = .{},
         container_stack: Stack(*Container, config.container_stack_size) = .{},
         clip_stack: Stack(Rect, config.clip_stack_size) = .{},
@@ -252,13 +256,16 @@ pub fn Context(comptime config: Config) type {
 
         //=== Internals ===//
 
+        inline fn pushCommand(self: *Self, id: CommandId, size: usize) *Command {
+            return self.command_list.push(id, size);
+        }
     };
 }
 
 //============//
 
 fn Stack(comptime T: type, comptime N: usize) type {
-    return extern struct {
+    return struct {
         items: [N]T = undefined,
         idx: usize = 0,
 
@@ -309,6 +316,38 @@ test "Stack" {
 
 //============//
 
+fn CommandList(comptime N: usize) type {
+    return struct {
+        buffer: [N]u8 align(alignment) = undefined,
+        pos: usize = 0,
+
+        const Self = @This();
+        const alignment = @alignOf(Command);
+
+        pub fn push(self: *Self, id: CommandId, size: usize) *Command {
+            std.debug.assert(size < self.buffer.len);
+            std.debug.assert(self.pos < self.buffer.len - size);
+
+            const next_pos = std.mem.alignForward(self.pos + size, alignment);
+
+            var cmd = @ptrCast(*Command, @alignCast(alignment, &self.buffer[self.pos]));
+            cmd.base.type = id;
+            cmd.base.size = next_pos - self.pos;
+
+            self.pos = next_pos;
+
+            return cmd;
+        }
+    };
+}
+
+test "CommandList" {
+    var cmds = CommandList(4096){};
+    _ = cmds.push(.Rect, @sizeOf(RectCommand));
+}
+
+//============//
+
 //  32bit fnv-1a hash
 
 const HASH_INITIAL: Id = 2166136261;
@@ -350,3 +389,6 @@ test "memberCount" {
     const expect = std.testing.expect;
     try expect(memberCount(ColorId) == 14);
 }
+
+//============//
+
