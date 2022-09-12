@@ -1,9 +1,32 @@
+//
+// Copyright (c) 2020 rxi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+//
+
 const std = @import("std");
 
 test {
     std.testing.refAllDecls(@This());
 }
 
+/// Compile-time configuration parameters
 pub const Config = struct {
     command_list_size: usize = (256 * 1024),
     rootlist_size: usize = 32,
@@ -20,13 +43,21 @@ pub const Config = struct {
     max_fmt: usize = 127,
 };
 
-pub const Id = u32;
+pub const Clip = enum(u2) {
+    None,
+    Part,
+    All,
+};
 
-pub const Font = *opaque {};
-
-pub const Vec2 = struct { x: i32 = 0, y: i32 = 0 };
-pub const Rect = struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
-pub const Color = struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
+pub const CommandId = enum(u32) {
+    None,
+    Jump,
+    Clip,
+    Rect,
+    Text,
+    Icon,
+    _,
+};
 
 pub const ColorId = enum(u4) {
     Text,
@@ -45,9 +76,76 @@ pub const ColorId = enum(u4) {
     ScrollThumb,
 };
 
+pub const Icon = enum(u32) {
+    None,
+    Close,
+    Check,
+    Collapsed,
+    Expanded,
+    _,
+};
+
+pub const Id = u32;
+
+pub const Font = *opaque {};
+
+pub const Vec2 = extern struct { x: i32 = 0, y: i32 = 0 };
+pub const Rect = extern struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
+pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
+
+pub const Result = packed struct {
+    active: bool = false,
+    submit: bool = false,
+    change: bool = false,
+};
+
+pub const OptionFlags = packed struct {
+    align_center: bool = false,
+    align_right: bool = false,
+    no_interact: bool = false,
+    no_frame: bool = false,
+    no_resize: bool = false,
+    no_scroll: bool = false,
+    no_title: bool = false,
+    hold_focus: bool = false,
+    auto_size: bool = false,
+    popup: bool = false,
+    closed: bool = false,
+    expanded: bool = false,
+};
+
+pub const MouseButtons = packed struct {
+    left: bool = false,
+    right: bool = false,
+    middle: bool = false,
+};
+
+pub const Keys = packed struct {
+    shift: bool = false,
+    ctrl: bool = false,
+    alt: bool = false,
+    backspace: bool = false,
+    enter: bool = false,
+};
+
 pub const PoolItem = struct { id: Id, last_update: i32 };
 
-pub const Command = struct {};
+pub const BaseCommand = extern struct { type: CommandId, size: usize };
+pub const JumpCommand = extern struct { base: BaseCommand, dst: *BaseCommand };
+pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
+pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
+pub const TextCommand = extern struct { base: BaseCommand, font: Font, pos: Vec2, color: Color, str: []u8 };
+pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
+
+pub const Command = extern union {
+    type: CommandId,
+    base: BaseCommand,
+    jump: JumpCommand,
+    clip: ClipCommand,
+    rect: RectCommand,
+    text: TextCommand,
+    icon: IconCommand,
+};
 
 pub const Container = struct {
     head: *Command,
