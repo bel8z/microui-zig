@@ -22,9 +22,19 @@
 
 const std = @import("std");
 
-test {
+test "MicroUi" {
     std.testing.refAllDecls(@This());
+
+    const MicroUi = Context(.{});
+
+    const font: Font = undefined;
+    var ui: MicroUi = undefined;
+    ui.init(&font, null);
+    try ui.begin();
+    defer ui.end();
 }
+
+pub const Id = u32;
 
 /// Compile-time configuration parameters
 pub const Config = struct {
@@ -85,13 +95,35 @@ pub const Icon = enum(u32) {
     _,
 };
 
-pub const Id = u32;
-
-pub const Font = *opaque {};
-
 pub const Vec2 = extern struct { x: i32 = 0, y: i32 = 0 };
-pub const Rect = extern struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
 pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
+pub const PoolItem = struct { id: Id, last_update: i32 };
+
+pub const Rect = extern struct {
+    x: i32 = 0,
+    y: i32 = 0,
+    w: i32 = 0,
+    h: i32 = 0,
+
+    fn expand(rect: Rect, n: i32) Rect {
+        return Rect{
+            .x = rect.x - n,
+            .y = rect.y - n,
+            .w = rect.w + 2 * n,
+            .h = rect.h + 2 * n,
+        };
+    }
+};
+
+pub const Font = struct {
+    text_height: i32,
+    text_width: fn (ptr: *anyopaque, str: []const u8) i32,
+    ptr: *anyopaque,
+
+    pub fn measure(self: *const Font, text: []const u8) i32 {
+        return self.text_width(self.ptr, text);
+    }
+};
 
 pub const Result = packed struct {
     active: bool = false,
@@ -128,8 +160,6 @@ pub const Keys = packed struct {
     enter: bool = false,
 };
 
-pub const PoolItem = struct { id: Id, last_update: i32 };
-
 // TODO (Matteo): Rethink command implementation.
 // The current solution works pretty well in C but seems a bit foreign in Zig;
 // furthermore, I'd like to provide easy extension with user-defined commands.
@@ -138,7 +168,7 @@ pub const BaseCommand = extern struct { type: CommandId, size: usize };
 pub const JumpCommand = extern struct { base: BaseCommand, dst: usize };
 pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
 pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
-pub const TextCommand = extern struct { base: BaseCommand, font: Font, pos: Vec2, color: Color, str: [*:0]u8 };
+pub const TextCommand = extern struct { base: BaseCommand, font: *const Font, pos: Vec2, color: Color, str: [*:0]u8 };
 pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
 
 pub const Command = extern union {
@@ -163,7 +193,7 @@ pub const Container = struct {
 };
 
 pub const Style = struct {
-    font: Font,
+    font: *const Font,
     size: Vec2,
     padding: i32,
     spacing: i32,
@@ -173,6 +203,10 @@ pub const Style = struct {
     thumb_size: i32,
     colors: [memberCount(ColorId)]Color,
 };
+
+// NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
+// the comptime configuration - ugly?
+pub const DrawFrameFn = fn (self: *anyopaque, rect: Rect, color: ColorId) void;
 
 pub fn Context(comptime config: Config) type {
     const Layout = struct {
@@ -192,26 +226,29 @@ pub fn Context(comptime config: Config) type {
     return struct {
         pub const Real = config.real;
 
+        const Self = @This();
+
+        //=== Data ===//
+
         // callbacks
-        //            int (*text_width)(mu_Font font, const char *str, int len);
-        //            int (*text_height)(mu_Font font);
-        //            void (*draw_frame)(mu_Context *ctx, mu_Rect rect, int colorid);
+        // TODO (Matteo): Improve custom drawing of window frames
+        draw_frame: DrawFrameFn,
 
         // core state
-        _style: Style = undefined,
-        style: *Style = undefined,
-        hover: Id = undefined,
-        focus: Id = undefined,
-        last_id: Id = undefined,
-        last_rect: Rect = undefined,
-        last_zindex: i32 = undefined,
-        updated_focus: i32 = undefined,
-        frame: i32 = undefined,
-        hover_root: Container = undefined,
-        next_hover_root: Container = undefined,
-        scroll_target: Container = undefined,
-        number_edit_buf: [config.max_fmt]u8 = undefined,
-        number_edit: Id = undefined,
+        _style: Style,
+        style: *Style,
+        hover: Id,
+        focus: Id,
+        last_id: Id,
+        last_rect: Rect,
+        last_zindex: i32,
+        updated_focus: i32,
+        frame: u32,
+        hover_root: ?*Container,
+        next_hover_root: ?*Container,
+        scroll_target: ?*Container,
+        number_edit_buf: [config.max_fmt]u8,
+        number_edit: Id,
 
         // stacks
         command_list: CommandList(config.command_list_size) = .{},
@@ -222,27 +259,70 @@ pub fn Context(comptime config: Config) type {
         layout_stack: Stack(Layout, config.layout_stack_size) = .{},
 
         // retained state pools
-        containers: [config.container_pool_size]Container = undefined,
-        container_pool: [config.container_pool_size]PoolItem = undefined,
-        treenode_pool: [config.treenode_pool_size]PoolItem = undefined,
+        containers: [config.container_pool_size]Container,
+        container_pool: [config.container_pool_size]PoolItem,
+        treenode_pool: [config.treenode_pool_size]PoolItem,
 
         // input state
         mouse_pos: Vec2 = .{},
         last_mouse_pos: Vec2 = .{},
         mouse_delta: Vec2 = .{},
         scroll_delta: Vec2 = .{},
-        mouse_down: i32 = 0,
-        mouse_pressed: i32 = 0,
-        key_down: i32 = 0,
-        key_pressed: i32 = 0,
-        input_text: [32]u8 = undefined,
+        mouse_down: MouseButtons = 0,
+        mouse_pressed: MouseButtons = 0,
+        key_down: Keys = 0,
+        key_pressed: Keys = 0,
+        input_text: [32]u8,
 
-        const Self = @This();
+        // TODO (Matteo): Review - used to intercept missing calls to the init functions
+        init_code: u16,
+
+        //=== Initialization ===//
+
+        pub fn init(self: *Self, font: *const Font, draw_frame: ?DrawFrameFn) void {
+            self.init_code = 0x1DEA;
+            self._style.font = font;
+            self.style = &self._style;
+            self.draw_frame = if (draw_frame) |ptr|
+                ptr
+            else
+                @ptrCast(DrawFrameFn, drawDefaultFrame);
+        }
+
+        pub fn allocate(alloc: std.mem.Allocator, font: *const Font) !*Self {
+            var self = try alloc.create(Self);
+            self.init(font);
+            return self;
+        }
+
+        pub fn release(self: *Self, alloc: std.mem.Allocator) void {
+            alloc.destroy(self);
+        }
+
+        //=== Frame management ===//
+
+        pub fn begin(self: *Self) !void {
+            if (self.init_code != 0x1DEA) return error.NotInitialized;
+
+            self.command_list.clear();
+            self.root_list.clear();
+            self.scroll_target = null;
+            self.hover_root = self.next_hover_root;
+            self.next_hover_root = null;
+            self.mouse_delta.x = self.mouse_pos.x - self.last_mouse_pos.x;
+            self.mouse_delta.y = self.mouse_pos.y - self.last_mouse_pos.y;
+            self.frame +%= 1; // wrapping increment, overflow is somewhat expected
+        }
+
+        pub fn end(self: *Self) void {
+            _ = self;
+        }
 
         //=== ID management ===//
 
         pub fn getId(self: *Self, data: []const u8) Id {
-            self.last_id = hash(data, self.id_stack.peek() orelse HASH_INITIAL);
+            const init_id = if (self.id_stack.peek()) |id| id.* orelse HASH_INITIAL;
+            self.last_id = hash(data, init_id);
             return self.last_id;
         }
 
@@ -251,10 +331,77 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn popId(self: *Self) void {
-            self.id_stack.pop();
+            _ = self.id_stack.pop();
+        }
+
+        //=== Window management ===//
+
+        //=== Widgets ===//
+
+        //=== Text ===//
+
+        //=== Drawing ===//
+
+        // TODO (Matteo): move the drawing functions on the command list directly?
+        // Can help a bit with code organization, since it is the only state touched.
+
+        fn drawRect(self: *Self, rect: Rect, color: Color) void {
+            _ = self;
+            _ = rect;
+            _ = color;
+        }
+
+        fn drawBox(self: *Self, rect: Rect, color: Color) void {
+            self.drawRect(.{
+                .x = rect.x + 1,
+                .y = rect.y,
+                .w = rect.w - 2,
+                .h = 1,
+            }, color);
+            self.drawRect(.{
+                .x = rect.x + 1,
+                .y = rect.y + rect.h - 1,
+                .w = rect.w - 2,
+                .h = 1,
+            }, color);
+            self.drawRect(.{
+                .x = rect.x,
+                .y = rect.y,
+                .w = 1,
+                .h = rect.h,
+            }, color);
+            self.drawRect(.{
+                .x = rect.x + rect.w - 1,
+                .y = rect.y,
+                .w = 1,
+                .h = rect.h,
+            }, color);
+        }
+
+        inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+            // NOTE (Matteo): Helper to abbreviate the calls involving the function
+            // pointer - ugly?
+            self.draw_frame(self, rect, color_id);
+        }
+
+        fn drawDefaultFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+            const color = self.getColor(color_id);
+            self.drawRect(rect, color);
+
+            switch (color_id) {
+                .ScrollBase, .ScrollThumb, .TitleBg => return,
+                else => if (color.a != 0) {
+                    self.drawBox(rect.expand(1), color);
+                },
+            }
         }
 
         //=== Internals ===//
+
+        inline fn getColor(self: *const Self, id: ColorId) Color {
+            // NOTE (Matteo): Helper to avoid casting the id everywhere - ugly?
+            return self.style.colors[@enumToInt(id)];
+        }
 
         inline fn pushCommand(self: *Self, id: CommandId, size: usize) *Command {
             return self.command_list.push(id, size);
@@ -287,7 +434,7 @@ fn Stack(comptime T: type, comptime N: usize) type {
             return self.items[self.idx];
         }
 
-        fn peek(self: *const Self) ?T {
+        fn peek(self: *const Self) ?*T {
             return if (self.idx == 0) null else self.items[self.idx - 1];
         }
     };
@@ -323,6 +470,10 @@ fn CommandList(comptime N: usize) type {
 
         const Self = @This();
         const alignment = @alignOf(Command);
+
+        fn clear(self: *Self) void {
+            self.pos = 0;
+        }
 
         pub fn push(self: *Self, id: CommandId, size: usize) *Command {
             std.debug.assert(size < self.buffer.len);
