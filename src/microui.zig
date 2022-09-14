@@ -30,8 +30,9 @@ test "MicroUi" {
     const font: Font = undefined;
     var ui: MicroUi = undefined;
     ui.init(&font, null);
-    try ui.begin();
-    defer ui.end();
+
+    try ui.beginFrame(.{});
+    defer ui.endFrame();
 }
 
 pub const Id = u32;
@@ -95,9 +96,21 @@ pub const Icon = enum(u32) {
     _,
 };
 
-pub const Vec2 = extern struct { x: i32 = 0, y: i32 = 0 };
 pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
 pub const PoolItem = struct { id: Id, last_update: i32 };
+
+pub const Vec2 = extern struct {
+    x: i32 = 0,
+    y: i32 = 0,
+
+    pub fn add(l: Vec2, r: Vec2) Vec2 {
+        return Vec2{ .x = l.x + r.x, .y = l.y + r.y };
+    }
+
+    pub fn sub(l: Vec2, r: Vec2) Vec2 {
+        return Vec2{ .x = l.x - r.x, .y = l.y - r.y };
+    }
+};
 
 pub const Rect = extern struct {
     x: i32 = 0,
@@ -204,6 +217,23 @@ pub const Style = struct {
     colors: [memberCount(ColorId)]Color,
 };
 
+pub const Input = struct {
+    mouse_pos: Vec2 = .{},
+    scroll_delta: Vec2 = .{},
+    mouse_down: MouseButtons = .{},
+    mouse_pressed: MouseButtons = .{},
+    key_down: Keys = .{},
+    key_pressed: Keys = .{},
+    input_text: [32]u8 = [_]u8{0} ** 32,
+
+    pub fn clear(self: *Input) void {
+        self.key_pressed = .{};
+        self.mouse_pressed = .{};
+        self.scroll_delta = .{};
+        self.input_text[0] = 0;
+    }
+};
+
 // NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
 // the comptime configuration - ugly?
 pub const DrawFrameFn = fn (self: *anyopaque, rect: Rect, color: ColorId) void;
@@ -264,15 +294,8 @@ pub fn Context(comptime config: Config) type {
         treenode_pool: [config.treenode_pool_size]PoolItem,
 
         // input state
-        mouse_pos: Vec2 = .{},
-        last_mouse_pos: Vec2 = .{},
+        last_input: Input,
         mouse_delta: Vec2 = .{},
-        scroll_delta: Vec2 = .{},
-        mouse_down: MouseButtons = 0,
-        mouse_pressed: MouseButtons = 0,
-        key_down: Keys = 0,
-        key_pressed: Keys = 0,
-        input_text: [32]u8,
 
         // TODO (Matteo): Review - used to intercept missing calls to the init functions
         init_code: u16,
@@ -301,20 +324,23 @@ pub fn Context(comptime config: Config) type {
 
         //=== Frame management ===//
 
-        pub fn begin(self: *Self) !void {
+        pub fn beginFrame(self: *Self, input: Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             self.command_list.clear();
             self.root_list.clear();
+
             self.scroll_target = null;
             self.hover_root = self.next_hover_root;
             self.next_hover_root = null;
-            self.mouse_delta.x = self.mouse_pos.x - self.last_mouse_pos.x;
-            self.mouse_delta.y = self.mouse_pos.y - self.last_mouse_pos.y;
+
+            self.mouse_delta = input.mouse_pos.sub(self.last_input.mouse_pos);
+            self.last_input = input;
+
             self.frame +%= 1; // wrapping increment, overflow is somewhat expected
         }
 
-        pub fn end(self: *Self) void {
+        pub fn endFrame(self: *Self) void {
             _ = self;
         }
 
