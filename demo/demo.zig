@@ -25,6 +25,25 @@ const key_map = init: {
     break :init value;
 };
 
+const color_map = init: {
+    var value: [c.MU_COLOR_MAX][*:0]const u8 = undefined;
+    value[c.MU_COLOR_TEXT] = "text:";
+    value[c.MU_COLOR_BORDER] = "border:";
+    value[c.MU_COLOR_WINDOWBG] = "windowbg:";
+    value[c.MU_COLOR_TITLEBG] = "titlebg:";
+    value[c.MU_COLOR_TITLETEXT] = "titletext:";
+    value[c.MU_COLOR_PANELBG] = "panelbg:";
+    value[c.MU_COLOR_BUTTON] = "button:";
+    value[c.MU_COLOR_BUTTONHOVER] = "buttonhover:";
+    value[c.MU_COLOR_BUTTONFOCUS] = "buttonfocus:";
+    value[c.MU_COLOR_BASE] = "base:";
+    value[c.MU_COLOR_BASEHOVER] = "basehover:";
+    value[c.MU_COLOR_BASEFOCUS] = "basefocus:";
+    value[c.MU_COLOR_SCROLLBASE] = "scrollbase:";
+    value[c.MU_COLOR_SCROLLTHUMB] = "scrollthumb:";
+    break :init value;
+};
+
 var _logbuf = [_]u8{0} ** 64000;
 var logbuf = std.io.fixedBufferStream(_logbuf[0..]);
 var logbuf_updated = false;
@@ -137,6 +156,23 @@ fn processFrame(ctx: *c.mu_Context) !void {
 
     try testWindow(ctx);
     logWindow(ctx);
+    styleWindow(ctx);
+}
+
+fn writeLog(text: [:0]const u8) void {
+    const l = logbuf.getPos() catch unreachable;
+
+    if (l > 0) {
+        // Replace null terminator with new line
+        logbuf.seekBy(-1) catch unreachable;
+        _ = logbuf.write(&[_]u8{'\n'}) catch unreachable;
+    }
+
+    // Append text & terminator
+    _ = logbuf.write(text) catch unreachable;
+    _ = logbuf.write(&[_]u8{0}) catch unreachable;
+
+    logbuf_updated = true;
 }
 
 fn testWindow(ctx: *c.mu_Context) !void {
@@ -303,18 +339,43 @@ fn logWindow(ctx: *c.mu_Context) void {
     }
 }
 
-fn writeLog(text: [:0]const u8) void {
-    const l = logbuf.getPos() catch unreachable;
+fn styleWindow(ctx: *c.mu_Context) void {
+    if (c.mu_begin_window(ctx, "Style Editor", c.mu_rect(350, 250, 300, 240)) != 0) {
+        defer c.mu_end_window(ctx);
 
-    if (l > 0) {
-        // Replace null terminator with new line
-        logbuf.seekBy(-1) catch unreachable;
-        _ = logbuf.write(&[_]u8{'\n'}) catch unreachable;
+        const width = c.mu_get_current_container(ctx).*.body.w;
+        const sw = @floatToInt(c_int, @intToFloat(f64, width) * 0.14);
+        c.mu_layout_row(ctx, 6, &[_]c_int{ 80, sw, sw, sw, sw, -1 }, 0);
+
+        for (color_map) |label, i| {
+            var color = &ctx.style.*.colors[i];
+            c.mu_label(ctx, label);
+            _ = sliderU8(ctx, &color.r, 0, 255);
+            _ = sliderU8(ctx, &color.g, 0, 255);
+            _ = sliderU8(ctx, &color.b, 0, 255);
+            _ = sliderU8(ctx, &color.a, 0, 255);
+            c.mu_draw_rect(ctx, c.mu_layout_next(ctx), color.*);
+        }
     }
+}
 
-    // Append text & terminator
-    _ = logbuf.write(text) catch unreachable;
-    _ = logbuf.write(&[_]u8{0}) catch unreachable;
+fn sliderU8(ctx: *c.mu_Context, value: *u8, low: u8, high: u8) c_int {
+    var tmp = @intToFloat(f32, value.*);
 
-    logbuf_updated = true;
+    c.mu_push_id(ctx, @ptrCast(*const anyopaque, &value), @sizeOf(@TypeOf(value)));
+
+    const res = c.mu_slider_ex(
+        ctx,
+        &tmp,
+        @intToFloat(f32, low),
+        @intToFloat(f32, high),
+        0,
+        "%.0f",
+        c.MU_OPT_ALIGNCENTER,
+    );
+    value.* = @floatToInt(u8, tmp);
+
+    c.mu_pop_id(ctx);
+
+    return res;
 }
