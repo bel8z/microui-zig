@@ -25,8 +25,10 @@ const key_map = init: {
     break :init value;
 };
 
-var logbuf = [_]u8{0} ** 64000;
+var _logbuf = [_]u8{0} ** 64000;
+var logbuf = std.io.fixedBufferStream(_logbuf[0..]);
 var logbuf_updated = false;
+
 var bg = [_]f32{ 90, 95, 100 };
 var checks = [3]c_int{ 1, 0, 1 };
 
@@ -132,6 +134,7 @@ fn processFrame(ctx: *c.mu_Context) !void {
     defer c.mu_end(ctx);
 
     try testWindow(ctx);
+    logWindow(ctx);
 }
 
 fn testWindow(ctx: *c.mu_Context) !void {
@@ -257,15 +260,38 @@ fn testWindow(ctx: *c.mu_Context) !void {
     }
 }
 
+fn logWindow(ctx: *c.mu_Context) void {
+    if (c.mu_begin_window(ctx, "Log Window", c.mu_rect(350, 40, 300, 200)) != 0) {
+        defer c.mu_end_window(ctx);
+        //  output text panel */
+        c.mu_layout_row(ctx, 1, &[_]c_int{-1}, -25);
+        c.mu_begin_panel(ctx, "Log Output");
+        var panel = c.mu_get_current_container(ctx);
+        c.mu_layout_row(ctx, 1, &[_]c_int{-1}, -1);
+
+        const text = logbuf.getWritten()[0.. :0];
+
+        c.mu_text(ctx, text);
+        c.mu_end_panel(ctx);
+        if (logbuf_updated) {
+            panel.*.scroll.y = panel.*.content_size.y;
+            logbuf_updated = false;
+        }
+    }
+}
+
 fn writeLog(text: [:0]const u8) void {
-    var l = std.mem.len(logbuf[0.. :0]);
+    const l = logbuf.getPos() catch unreachable;
 
     if (l > 0) {
-        logbuf[l] = '\n';
-        l += 1;
+        // Replace null terminator with new line
+        logbuf.seekBy(-1) catch unreachable;
+        _ = logbuf.write(&[_]u8{'\n'}) catch unreachable;
     }
 
-    std.mem.copy(u8, logbuf[l..], text);
-    l += text.len;
-    logbuf[l] = 0;
+    // Append text & terminator
+    _ = logbuf.write(text) catch unreachable;
+    _ = logbuf.write(&[_]u8{0}) catch unreachable;
+
+    logbuf_updated = true;
 }
