@@ -81,12 +81,14 @@ pub fn main() !void {
                 },
 
                 c.SDL_KEYDOWN => {
-                    const b = key_map[e.button.button & 0xff];
+                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
+                    const b = key_map[k];
                     if (b != 0) c.mu_input_keydown(ctx, b);
                 },
 
                 c.SDL_KEYUP => {
-                    const b = key_map[e.button.button & 0xff];
+                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
+                    const b = key_map[k];
                     if (b != 0) c.mu_input_keyup(ctx, b);
                 },
 
@@ -263,7 +265,7 @@ fn testWindow(ctx: *c.mu_Context) !void {
 fn logWindow(ctx: *c.mu_Context) void {
     if (c.mu_begin_window(ctx, "Log Window", c.mu_rect(350, 40, 300, 200)) != 0) {
         defer c.mu_end_window(ctx);
-        //  output text panel */
+        //  output text panel
         c.mu_layout_row(ctx, 1, &[_]c_int{-1}, -25);
         c.mu_begin_panel(ctx, "Log Output");
         var panel = c.mu_get_current_container(ctx);
@@ -276,6 +278,27 @@ fn logWindow(ctx: *c.mu_Context) void {
         if (logbuf_updated) {
             panel.*.scroll.y = panel.*.content_size.y;
             logbuf_updated = false;
+        }
+
+        // input textbox + submit button
+        const input = struct {
+            var buf = [_]u8{0} ** 128;
+        };
+        var submitted = false;
+
+        c.mu_layout_row(ctx, 2, &[_]c_int{ -70, -1 }, 0);
+
+        if (c.mu_textbox(ctx, &input.buf, @intCast(c_int, input.buf.len)) & c.MU_RES_SUBMIT != 0) {
+            c.mu_set_focus(ctx, ctx.*.last_id);
+            submitted = true;
+        }
+
+        if (c.mu_button(ctx, "Submit") != 0) submitted = true;
+
+        if (submitted) {
+            const len = std.mem.indexOfScalar(u8, input.buf[0..], 0) orelse unreachable;
+            writeLog(input.buf[0..len :0]);
+            std.mem.set(u8, input.buf[0..], 0);
         }
     }
 }

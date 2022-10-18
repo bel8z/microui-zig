@@ -76,7 +76,7 @@ pub fn build(b: *Builder) void {
     lib.addIncludeDir("src");
     lib.addCSourceFile("src/microui.c", &flags);
 
-    var demo_c = b.addExecutable("microui-demo-c", null);
+    var demo_c = b.addExecutable("microui_demo_c", null);
     demo_c.setTarget(target);
     demo_c.setBuildMode(mode);
     demo_c.install();
@@ -92,7 +92,7 @@ pub fn build(b: *Builder) void {
     demo_c.linkLibrary(lib);
     setupDemo(b, target, demo_c, b.step("c", "Run the C demo app"));
 
-    var demo_z = b.addExecutable("microui-demo-z", "demo/demo.zig");
+    var demo_z = b.addExecutable("microui_demo_z", "demo/demo.zig");
     demo_z.setTarget(target);
     demo_z.setBuildMode(mode);
     demo_z.install();
