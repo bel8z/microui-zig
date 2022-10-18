@@ -324,7 +324,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Frame management ===//
 
-        pub fn beginFrame(self: *Self, input: Input) !void {
+        pub fn beginFrame(self: *Self, input: *Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             self.command_list.clear();
