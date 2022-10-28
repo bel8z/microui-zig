@@ -484,6 +484,17 @@ pub fn Context(comptime config: Config) type {
             cnt.zindex = self.last_zindex;
         }
 
+        fn popContainer(self: *Self) void {
+            const layout = self.getLayout();
+            var cnt = self.getCurrentContainer();
+
+            cnt.content_size = layout.max.sub(layout.body);
+
+            _ = self.container_stack.pop();
+            _ = self.layout_stack.pop();
+            self.popId();
+        }
+
         //=== Pool management ===//
 
         pub fn poolInit(self: *Self, items: []PoolItem, id: Id) usize {
@@ -507,7 +518,52 @@ pub fn Context(comptime config: Config) type {
             @compileError("Not implemented");
         }
 
-        //=== Window management ===//
+        //=== Layout management ===//
+
+        pub fn layoutRow(self: *Self, widths: []i32, height: i32) void {
+            _ = self;
+            _ = widths;
+            _ = height;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutWidth(self: *Self, width: i32) void {
+            _ = self;
+            _ = width;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutHeight(self: *Self, height: i32) void {
+            _ = self;
+            _ = height;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutBeginColumn(self: *Self) void {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutEndColumn(self: *Self) void {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutSetNext(self: *Self, r: Rect, relative: bool) void {
+            _ = self;
+            _ = r;
+            _ = relative;
+            @compileError("Not implemented");
+        }
+
+        pub fn layoutNext(self: *Self) Rect {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        fn getLayout(self: *Self) *Layout {
+            return self.layout_stack.peek() orelse unreachable;
+        }
 
         //=== Clipping ===//
 
@@ -548,22 +604,274 @@ pub fn Context(comptime config: Config) type {
             return .Part;
         }
 
-        //=== Widgets ===//
+        //=== Controls ===//
 
-        //=== Text ===//
+        pub fn mouseOver(self: *Self, rect: Rect) bool {
+            _ = self;
+            _ = rect;
+            @compileError("Not implemented");
+        }
+
+        pub fn updateControl(
+            self: *Self,
+            id: Id,
+            rect: Rect,
+            opts: OptionFlags,
+        ) void {
+            _ = self;
+            _ = id;
+            _ = rect;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn text(self: *Self, str: []const u8) void {
+            _ = self;
+            _ = str;
+            @compileError("Not implemented");
+        }
+
+        pub fn label(self: *Self, str: []const u8) void {
+            _ = self;
+            _ = str;
+            @compileError("Not implemented");
+        }
+
+        pub inline fn button(self: *Self, id: []const u8) Result {
+            return self.buttonEx(id, .None, .{ .align_center = true });
+        }
+
+        pub fn buttonEx(
+            self: *Self,
+            id: []const u8,
+            icon: Icon,
+            opts: OptionFlags,
+        ) Result {
+            _ = self;
+            _ = id;
+            _ = icon;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn checkbox(self: *Self, id: []const u8, state: *bool) Result {
+            _ = self;
+            _ = id;
+            _ = state;
+            @compileError("Not implemented");
+        }
+
+        pub fn textbox(self: *Self, buf: []u8, opts: OptionFlags) Result {
+            _ = self;
+            _ = buf;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn textboxRaw(
+            self: *Self,
+            buf: []u8,
+            id: Id,
+            rect: Rect,
+            opts: OptionFlags,
+        ) Result {
+            _ = self;
+            _ = buf;
+            _ = id;
+            _ = rect;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub inline fn slider(
+            self: *Self,
+            value: *Real,
+            low: Real,
+            high: Real,
+        ) Result {
+            return self.sliderEx(
+                value,
+                low,
+                high,
+                0,
+                config.slider_fmt,
+                .{ .align_center = true },
+            );
+        }
+
+        pub fn sliderEx(
+            self: *Self,
+            value: *Real,
+            low: Real,
+            high: Real,
+            step: Real,
+            fmt: []const u8,
+            opts: OptionFlags,
+        ) Result {
+            _ = self;
+            _ = value;
+            _ = low;
+            _ = high;
+            _ = step;
+            _ = fmt;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn number(
+            self: *Self,
+            value: *Real,
+            step: Real,
+        ) Result {
+            return self.numberEx(
+                value,
+                step,
+                config.slider_fmt,
+                .{ .align_center = true },
+            );
+        }
+
+        pub fn numberEx(
+            self: *Self,
+            value: *Real,
+            step: Real,
+            fmt: []const u8,
+            opts: OptionFlags,
+        ) Result {
+            _ = self;
+            _ = value;
+            _ = step;
+            _ = fmt;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn header(self: *Self, id: []const u8, opts: OptionFlags) Result {
+            _ = self;
+            _ = id;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn beginTreeNode(self: *Self, id: []const u8, opts: OptionFlags) void {
+            _ = self;
+            _ = id;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn endTreeNode(self: *Self) void {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        pub fn beginWindow(
+            self: *Self,
+            title: []const u8,
+            rect: Rect,
+            opts: OptionFlags,
+        ) Result {
+            _ = self;
+            _ = title;
+            _ = rect;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn endWindow(self: *Self) void {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        pub fn openPopup(self: *Self, name: []const u8) void {
+            _ = self;
+            _ = name;
+            @compileError("Not implemented");
+        }
+
+        pub fn beginPopup(self: *Self, name: []const u8) Result {
+            return self.beginWindow(name, .{}, .{
+                .popup = true,
+                .auto_size = true,
+                .no_resize = true,
+                .no_scroll = true,
+                .no_title = true,
+                .closed = true,
+            });
+        }
+
+        pub fn endPopup(self: *Self) void {
+            self.endWindow();
+        }
+
+        pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) void {
+            _ = self;
+            _ = name;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn endPanel(self: *Self) void {
+            self.popClipRect();
+            self.popContainer();
+        }
 
         //=== Drawing ===//
 
         // TODO (Matteo): move the drawing functions on the command list directly?
         // Can help a bit with code organization, since it is the only state touched.
 
-        fn drawRect(self: *Self, rect: Rect, color: Color) void {
+        pub fn pushCommand(self: *Self, id: CommandId, size: usize) *Command {
+            return self.command_list.push(id, size);
+        }
+
+        // TODO (Matteo): Command iteration
+
+        pub fn setClip(self: *Self, rect: Rect) void {
+            _ = self;
+            _ = rect;
+            @compileError("Not implemented");
+        }
+
+        pub fn drawControlFrame(
+            self: *Self,
+            id: Id,
+            rect: Rect,
+            color: ColorId,
+            opts: OptionFlags,
+        ) void {
+            _ = self;
+            _ = id;
+            _ = rect;
+            _ = color;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn drawControlText(
+            self: *Self,
+            str: []const u8,
+            rect: Rect,
+            color: ColorId,
+            opts: OptionFlags,
+        ) void {
+            _ = self;
+            _ = str;
+            _ = rect;
+            _ = color;
+            _ = opts;
+            @compileError("Not implemented");
+        }
+
+        pub fn drawRect(self: *Self, rect: Rect, color: Color) void {
             _ = self;
             _ = rect;
             _ = color;
+            // Not implemented
+            unreachable;
         }
 
-        fn drawBox(self: *Self, rect: Rect, color: Color) void {
+        pub fn drawBox(self: *Self, rect: Rect, color: Color) void {
             self.drawRect(.{
                 .x = rect.x + 1,
                 .y = rect.y,
@@ -590,6 +898,23 @@ pub fn Context(comptime config: Config) type {
             }, color);
         }
 
+        pub fn drawText(self: *Self, font: *Font, str: []const u8, pos: Vec2, color: Color) void {
+            _ = self;
+            _ = font;
+            _ = str;
+            _ = pos;
+            _ = color;
+            @compileError("Not implemented");
+        }
+
+        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) void {
+            _ = self;
+            _ = id;
+            _ = rect;
+            _ = color;
+            @compileError("Not implemented");
+        }
+
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
             // NOTE (Matteo): Helper to abbreviate the calls involving the function
             // pointer - ugly?
@@ -613,10 +938,6 @@ pub fn Context(comptime config: Config) type {
         inline fn getColor(self: *const Self, id: ColorId) Color {
             // NOTE (Matteo): Helper to avoid casting the id everywhere - ugly?
             return self.style.colors[@enumToInt(id)];
-        }
-
-        inline fn pushCommand(self: *Self, id: CommandId, size: usize) *Command {
-            return self.command_list.push(id, size);
         }
     };
 }
