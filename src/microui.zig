@@ -31,9 +31,9 @@ test "MicroUi" {
 
     const font: Font = undefined;
     var ui: MicroUi = undefined;
-    ui.init(&font, null);
+    const input = ui.init(&font, null);
 
-    try ui.beginFrame(.{});
+    try ui.beginFrame(input);
     defer ui.endFrame();
 }
 
@@ -54,6 +54,7 @@ pub const Config = struct {
     real_fmt: []const u8 = "%.3g",
     slider_fmt: []const u8 = "%.2f",
     max_fmt: usize = 127,
+    input_buf_size: usize = 32,
 };
 
 pub const Clip = enum(u2) {
@@ -189,9 +190,7 @@ pub const MouseButtons = packed struct {
     right: bool = false,
     middle: bool = false,
 
-    pub inline fn any(self: MouseButtons) bool {
-        return self.left or self.right or self.middle;
-    }
+    pub usingnamespace BitSet(MouseButtons, u3);
 };
 
 pub const Keys = packed struct {
@@ -200,6 +199,8 @@ pub const Keys = packed struct {
     alt: bool = false,
     backspace: bool = false,
     enter: bool = false,
+
+    pub usingnamespace BitSet(Keys, u5);
 };
 
 // TODO (Matteo): Rethink command implementation.
@@ -246,16 +247,6 @@ pub const Style = struct {
     colors: [memberCount(ColorId)]Color,
 };
 
-pub const Input = struct {
-    mouse_pos: Vec2 = .{},
-    scroll_delta: Vec2 = .{},
-    mouse_down: MouseButtons = .{},
-    mouse_pressed: MouseButtons = .{},
-    key_down: Keys = .{},
-    key_pressed: Keys = .{},
-    input_text: [32]u8 = [_]u8{0} ** 32,
-};
-
 // NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
 // the comptime configuration - ugly?
 pub const DrawFrameFn = fn (self: *anyopaque, rect: Rect, color: ColorId) void;
@@ -273,6 +264,48 @@ pub fn Context(comptime config: Config) type {
         next_row: i32,
         next_type: i32,
         indent: i32,
+    };
+
+    const Input = struct {
+        mouse_pos: Vec2 = .{},
+        scroll_delta: Vec2 = .{},
+        mouse_down: MouseButtons = .{},
+        mouse_pressed: MouseButtons = .{},
+        key_down: Keys = .{},
+        key_pressed: Keys = .{},
+        input_text: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
+
+        const Self = @This();
+
+        pub inline fn mouseMove(self: *Self, x: i32, y: i32) void {
+            self.mouse_pos = .{ .x = x, .y = y };
+        }
+
+        pub fn mouseDown(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
+            self.mouseMovePt(x, y);
+
+            self.mouse_down = self.mouse_down.unionWith(btn);
+            self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+        }
+
+        pub fn mouseUp(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
+            self.mouseMovePt(x, y);
+            self.mouse_down = self.mouse_down.exceptWith(btn);
+        }
+
+        pub inline fn scroll(self: *Self, x: i32, y: i32) void {
+            self.scroll.x += x;
+            self.scroll.y += y;
+        }
+
+        pub fn keyDown(self: *Self, key: Keys) void {
+            self.key_down = self.key_down.unionWith(key);
+            self.key_pressed = self.key_pressed.unionWith(key);
+        }
+
+        pub fn keyUp(self: *Self, key: Keys) void {
+            self.key_down = self.key_down.exceptWith(key);
+        }
     };
 
     return struct {
@@ -324,7 +357,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Initialization ===//
 
-        pub fn init(self: *Self, font: *const Font, draw_frame: ?DrawFrameFn) void {
+        pub fn init(self: *Self, font: *const Font, draw_frame: ?DrawFrameFn) Input {
             self.init_code = 0x1DEA;
             self._style.font = font;
             self.style = &self._style;
@@ -332,6 +365,8 @@ pub fn Context(comptime config: Config) type {
                 ptr
             else
                 @ptrCast(DrawFrameFn, drawDefaultFrame);
+
+            return .{};
         }
 
         pub fn allocate(alloc: std.mem.Allocator, font: *const Font) !*Self {
@@ -426,11 +461,22 @@ pub fn Context(comptime config: Config) type {
             _ = self.id_stack.pop();
         }
 
-        //=== Container management ===//
-
         pub fn setFocus(self: *Self, id: Id) void {
             self.focus = id;
             self.updated_focus = true;
+        }
+
+        //=== Container management ===//
+
+        pub fn getCurrentContainer(self: *Self) *Container {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        pub fn getContainer(self: *Self, name: []u8) *Container {
+            _ = self;
+            _ = name;
+            @compileError("Not implemented");
         }
 
         pub fn bringToFront(self: *Self, cnt: *Container) void {
@@ -438,11 +484,30 @@ pub fn Context(comptime config: Config) type {
             cnt.zindex = self.last_zindex;
         }
 
+        //=== Pool management ===//
+
+        pub fn poolInit(self: *Self, items: []PoolItem, id: Id) usize {
+            _ = self;
+            _ = items;
+            _ = id;
+            @compileError("Not implemented");
+        }
+
+        pub fn poolGet(self: *Self, items: []PoolItem, id: Id) usize {
+            _ = self;
+            _ = items;
+            _ = id;
+            @compileError("Not implemented");
+        }
+
+        pub fn poolUpdate(self: *Self, items: []PoolItem, idx: usize) void {
+            _ = self;
+            _ = items;
+            _ = idx;
+            @compileError("Not implemented");
+        }
+
         //=== Window management ===//
-
-        //=== Widgets ===//
-
-        //=== Text ===//
 
         //=== Clipping ===//
 
@@ -458,6 +523,34 @@ pub fn Context(comptime config: Config) type {
         pub fn getClipRect(self: *Self) Rect {
             self.clip_stack.peek() orelse unreachable;
         }
+
+        pub fn checkClip(self: *Self, r: Rect) Clip {
+            const c = self.getClipRect();
+
+            const rx1 = r.x + r.w;
+            const ry1 = r.y + r.h;
+
+            const cx1 = c.x + c.w;
+            const cy1 = c.y + c.h;
+
+            if (r.x > cx1 or rx1 < c.x or
+                r.y > cy1 or ry1 < c.y)
+            {
+                return .All;
+            }
+
+            if (r.x >= c.x and rx1 <= cx1 and
+                r.y >= c.y and ry1 <= cy1)
+            {
+                return .None;
+            }
+
+            return .Part;
+        }
+
+        //=== Widgets ===//
+
+        //=== Text ===//
 
         //=== Drawing ===//
 
@@ -658,6 +751,45 @@ fn memberCount(comptime Enum: type) usize {
 test "memberCount" {
     const expect = std.testing.expect;
     try expect(memberCount(ColorId) == 14);
+}
+
+//============//
+
+/// Mixin for bitsets implemented as packed structs
+fn BitSet(comptime Struct: type, comptime Int: type) type {
+    comptime {
+        assert(@sizeOf(Struct) == @sizeOf(Int));
+    }
+
+    return struct {
+        pub inline fn none(a: Struct) bool {
+            return toInt(a) == 0;
+        }
+
+        pub inline fn any(a: Struct) bool {
+            return toInt(a) != 0;
+        }
+
+        pub inline fn toInt(self: Struct) Int {
+            return @bitCast(Int, self);
+        }
+
+        pub inline fn fromInt(value: Int) Struct {
+            return @bitCast(Struct, value);
+        }
+
+        pub inline fn unionWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) | toInt(b));
+        }
+
+        pub inline fn intersectWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) & toInt(b));
+        }
+
+        pub fn exceptWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) & ~toInt(b));
+        }
+    };
 }
 
 //============//
