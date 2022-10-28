@@ -22,6 +22,8 @@
 
 const std = @import("std");
 
+const assert = std.debug.assert;
+
 test "MicroUi" {
     std.testing.refAllDecls(@This());
 
@@ -126,6 +128,29 @@ pub const Rect = extern struct {
             .h = rect.h + 2 * n,
         };
     }
+
+    pub fn intersect(r1: Rect, r2: Rect) Rect {
+        const x1 = std.math.max(r1.x, r2.x);
+        const y1 = std.math.max(r1.y, r2.y);
+
+        var x2 = std.math.min(r1.x + r1.w, r2.x + r2.w);
+        var y2 = std.math.min(r1.y + r1.h, r2.y + r2.h);
+
+        if (x2 < x1) x2 = x1;
+        if (y2 < y1) y2 = y1;
+
+        return Rect{
+            .x = x1,
+            .y = y1,
+            .w = x2 - x1,
+            .h = y2 - y1,
+        };
+    }
+
+    pub fn overlaps(rect: Rect, p: Vec2) bool {
+        return p.x >= rect.x and p.x <= rect.x + rect.w and
+            p.y >= rect.y and p.y <= rect.y + rect.h;
+    }
 };
 
 pub const Font = struct {
@@ -163,6 +188,10 @@ pub const MouseButtons = packed struct {
     left: bool = false,
     right: bool = false,
     middle: bool = false,
+
+    pub inline fn any(self: MouseButtons) bool {
+        return self.left or self.right or self.middle;
+    }
 };
 
 pub const Keys = packed struct {
@@ -225,13 +254,6 @@ pub const Input = struct {
     key_down: Keys = .{},
     key_pressed: Keys = .{},
     input_text: [32]u8 = [_]u8{0} ** 32,
-
-    pub fn clear(self: *Input) void {
-        self.key_pressed = .{};
-        self.mouse_pressed = .{};
-        self.scroll_delta = .{};
-        self.input_text[0] = 0;
-    }
 };
 
 // NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
@@ -272,7 +294,7 @@ pub fn Context(comptime config: Config) type {
         last_id: Id,
         last_rect: Rect,
         last_zindex: i32,
-        updated_focus: i32,
+        updated_focus: bool,
         frame: u32,
         hover_root: ?*Container,
         next_hover_root: ?*Container,
@@ -324,7 +346,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Frame management ===//
 
-        pub fn beginFrame(self: *Self, input: *Input) !void {
+        pub fn beginFrame(self: *Self, input: Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             self.command_list.clear();
@@ -342,6 +364,50 @@ pub fn Context(comptime config: Config) type {
 
         pub fn endFrame(self: *Self) void {
             _ = self;
+
+            // Check stacks
+            assert(self.container_stack.idx == 0);
+            assert(self.clip_stack.idx == 0);
+            assert(self.id_stack.idx == 0);
+            assert(self.layout_stack.idx == 0);
+
+            // Handle scroll target
+            if (self.scroll_target) |tgt| {
+                tgt.scroll = tgt.scroll.add(self.last_input.scroll_delta);
+            }
+
+            // unset focus if focus id was not touched this frame
+            if (!self.updated_focus) self.focus = 0;
+            self.updated_focus = false;
+
+            // Bring hover root to front if mouse was pressed
+            if (self.next_hover_root) |hover_root| {
+                if (self.last_input.mouse_pressed.any() and
+                    hover_root.zindex < self.last_zindex and
+                    hover_root.zindex >= 0)
+                {
+                    self.bringToFront(hover_root);
+                }
+            }
+
+            // Reset input state
+            self.last_input.key_pressed = .{};
+            self.last_input.mouse_pressed = .{};
+            self.last_input.scroll_delta = .{};
+            self.last_input.input_text[0] = 0;
+
+            // Sort root containers by zindex
+            const compare = struct {
+                fn lessThan(_: void, a: *Container, b: *Container) bool {
+                    return a.zindex < b.zindex;
+                }
+            };
+
+            const n = self.root_list.idx;
+            std.sort.sort(*Container, self.root_list.items[0..n], {}, compare.lessThan);
+
+            // TODO (Matteo)
+            // Set root container jump commands
         }
 
         //=== ID management ===//
@@ -360,11 +426,38 @@ pub fn Context(comptime config: Config) type {
             _ = self.id_stack.pop();
         }
 
+        //=== Container management ===//
+
+        pub fn setFocus(self: *Self, id: Id) void {
+            self.focus = id;
+            self.updated_focus = true;
+        }
+
+        pub fn bringToFront(self: *Self, cnt: *Container) void {
+            self.last_zindex += 1;
+            cnt.zindex = self.last_zindex;
+        }
+
         //=== Window management ===//
 
         //=== Widgets ===//
 
         //=== Text ===//
+
+        //=== Clipping ===//
+
+        pub fn pushClipRect(self: *Self, rect: Rect) void {
+            const last = self.getClipRect();
+            self.clip_stack.push(rect.intersect(last));
+        }
+
+        pub fn popClipRect(self: *Self) void {
+            self.clip_stack.pop();
+        }
+
+        pub fn getClipRect(self: *Self) Rect {
+            self.clip_stack.peek() orelse unreachable;
+        }
 
         //=== Drawing ===//
 
@@ -449,13 +542,13 @@ fn Stack(comptime T: type, comptime N: usize) type {
         }
 
         fn push(self: *Self, item: T) void {
-            std.debug.assert(self.idx < self.items.len);
+            assert(self.idx < self.items.len);
             self.items[self.idx] = item;
             self.idx += 1;
         }
 
         fn pop(self: *Self) T {
-            std.debug.assert(self.idx > 0);
+            assert(self.idx > 0);
             self.idx -= 1;
             return self.items[self.idx];
         }
@@ -502,8 +595,8 @@ fn CommandList(comptime N: usize) type {
         }
 
         pub fn push(self: *Self, id: CommandId, size: usize) *Command {
-            std.debug.assert(size < self.buffer.len);
-            std.debug.assert(self.pos < self.buffer.len - size);
+            assert(size < self.buffer.len);
+            assert(self.pos < self.buffer.len - size);
 
             const next_pos = std.mem.alignForward(self.pos + size, alignment);
 
