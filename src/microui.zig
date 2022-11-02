@@ -100,7 +100,6 @@ pub const Icon = enum(u32) {
 };
 
 pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
-pub const PoolItem = struct { id: Id, last_update: i32 };
 
 pub const Vec2 = extern struct {
     x: i32 = 0,
@@ -345,8 +344,8 @@ pub fn Context(comptime config: Config) type {
 
         // retained state pools
         containers: [config.container_pool_size]Container,
-        container_pool: [config.container_pool_size]PoolItem,
-        treenode_pool: [config.treenode_pool_size]PoolItem,
+        container_pool: Pool(config.container_pool_size) = .{},
+        treenode_pool: Pool(config.treenode_pool_size) = .{},
 
         // input state
         last_input: Input,
@@ -469,14 +468,12 @@ pub fn Context(comptime config: Config) type {
         //=== Container management ===//
 
         pub fn getCurrentContainer(self: *Self) *Container {
-            _ = self;
-            @compileError("Not implemented");
+            return self.container_stack.peek() orelse unreachable;
         }
 
         pub fn getContainer(self: *Self, name: []u8) *Container {
-            _ = self;
-            _ = name;
-            @compileError("Not implemented");
+            const id = self.getId(name);
+            return self.getContainerById(id, .{}) orelse unreachable;
         }
 
         pub fn bringToFront(self: *Self, cnt: *Container) void {
@@ -495,27 +492,26 @@ pub fn Context(comptime config: Config) type {
             self.popId();
         }
 
-        //=== Pool management ===//
+        fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?*Container {
+            // Try to get existing container from pool
+            if (self.container_pool.get(id)) |index| {
+                if (self.containers[index].open or !opt.closed) {
+                    // TODO (Matteo): Why update only in this case?
+                    self.container_pool.update(index, self.frame);
+                }
+                return &self.containers[index];
+            }
 
-        pub fn poolInit(self: *Self, items: []PoolItem, id: Id) usize {
-            _ = self;
-            _ = items;
-            _ = id;
-            @compileError("Not implemented");
-        }
+            if (opt.closed) return null;
 
-        pub fn poolGet(self: *Self, items: []PoolItem, id: Id) usize {
-            _ = self;
-            _ = items;
-            _ = id;
-            @compileError("Not implemented");
-        }
-
-        pub fn poolUpdate(self: *Self, items: []PoolItem, idx: usize) void {
-            _ = self;
-            _ = items;
-            _ = idx;
-            @compileError("Not implemented");
+            // Container not found in pool, init a new one
+            const index = self.container_pool.init(id, self.frame);
+            const cnt = &self.containers[index];
+            // TODO (Matteo): Can be improved?
+            cnt.* = std.mem.zeroInit(Container, .{});
+            cnt.open = true;
+            self.bringToFront(cnt);
+            return cnt;
         }
 
         //=== Layout management ===//
@@ -992,6 +988,48 @@ test "Stack" {
     try expect(s.pop() == 1);
     try expect(s.pop() == 0);
     try expect(s.idx == 0);
+}
+
+//============//
+
+pub const PoolItem = struct { id: Id = undefined, last_update: i32 = 0 };
+
+fn Pool(comptime N: usize) type {
+    return struct {
+        items: [N]PoolItem = undefined,
+
+        const Self = @This();
+
+        pub fn init(self: *Self, id: Id, curr_frame: i32) usize {
+            var last_index = N;
+            var frame = curr_frame;
+
+            // Find the least recently updated item
+            for (self.items) |item, index| {
+                if (item.last_update < frame) {
+                    frame = item.last_update;
+                    last_index = index;
+                }
+            }
+
+            assert(last_index < N);
+
+            self.items[last_index].id = id;
+            self.items[last_index].last_update = curr_frame;
+        }
+
+        pub fn get(self: *Self, id: Id) ?usize {
+            for (self.items) |item, index| {
+                if (item.id == id) return index;
+            }
+
+            return null;
+        }
+
+        pub fn update(self: *Self, index: usize, curr_frame: i32) void {
+            self.items[index].last_update = curr_frame;
+        }
+    };
 }
 
 //============//
