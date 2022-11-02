@@ -76,7 +76,6 @@ pub fn main() !void {
     c.r_init(width, height);
 
     // init microui
-    const a = std.heap.page_allocator;
 
     const f = Font{
         .ptr = null,
@@ -84,6 +83,7 @@ pub fn main() !void {
         .text_width = textWidth,
     };
 
+    const a = std.heap.page_allocator;
     var ctx = try a.create(Context);
     var input = ctx.init(&f, null);
 

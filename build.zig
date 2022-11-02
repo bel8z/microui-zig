@@ -32,7 +32,7 @@ fn setupDemo(
             else => unreachable,
         };
 
-        demo.addIncludeDir(std.mem.concat(b.allocator, u8, &.{ path, "/include" }) catch unreachable);
+        demo.addIncludePath(std.mem.concat(b.allocator, u8, &.{ path, "/include" }) catch unreachable);
         demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2.a" }) catch unreachable);
         demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2main.a" }) catch unreachable);
     } else {
@@ -73,15 +73,15 @@ pub fn build(b: *Builder) void {
     lib.setBuildMode(mode);
     lib.install();
     lib.linkLibC();
-    lib.addIncludeDir("src");
+    lib.addIncludePath("src");
     lib.addCSourceFile("src/microui.c", &flags);
 
     var demo_c = b.addExecutable("microui_demo_c", null);
     demo_c.setTarget(target);
     demo_c.setBuildMode(mode);
     demo_c.install();
-    demo_c.addIncludeDir("src");
-    demo_c.addIncludeDir("demo");
+    demo_c.addIncludePath("src");
+    demo_c.addIncludePath("demo");
     demo_c.addCSourceFiles(
         &.{
             "demo/main.c",
@@ -96,8 +96,8 @@ pub fn build(b: *Builder) void {
     demo_z.setTarget(target);
     demo_z.setBuildMode(mode);
     demo_z.install();
-    demo_z.addIncludeDir("src");
-    demo_z.addIncludeDir("demo");
+    demo_z.addIncludePath("src");
+    demo_z.addIncludePath("demo");
     demo_z.addCSourceFiles(
         &.{"demo/renderer.c"},
         &flags,
@@ -105,7 +105,7 @@ pub fn build(b: *Builder) void {
     demo_z.linkLibrary(lib);
     demo_z.addPackage(std.build.Pkg{
         .name = b.dupe("microui"),
-        .path = .{ .path = b.dupe("src/microui.zig") },
+        .source = .{ .path = b.dupe("src/microui.zig") },
     });
     setupDemo(b, target, demo_z, b.step("z", "Run the Zig demo app"));
 

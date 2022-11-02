@@ -159,7 +159,7 @@ pub const Rect = extern struct {
 
 pub const Font = struct {
     text_height: i32,
-    text_width: fn (ptr: ?*anyopaque, str: []const u8) i32,
+    text_width: *const fn (ptr: ?*anyopaque, str: []const u8) i32,
     ptr: ?*anyopaque = null,
 
     pub fn measure(self: *const Font, text: []const u8) i32 {
@@ -256,7 +256,7 @@ pub const Style = struct {
 
 // NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
 // the comptime configuration - ugly?
-pub const DrawFrameFn = fn (self: *anyopaque, rect: Rect, color: ColorId) void;
+pub const DrawFrameFn = *const fn (self: *anyopaque, rect: Rect, color: ColorId) void;
 
 pub fn Context(comptime config: Config) type {
     return struct {
@@ -388,7 +388,7 @@ pub fn Context(comptime config: Config) type {
             self.draw_frame = if (draw_frame) |ptr|
                 ptr
             else
-                @ptrCast(DrawFrameFn, drawDefaultFrame);
+                @ptrCast(DrawFrameFn, &drawDefaultFrame);
 
             return .{};
         }
@@ -422,8 +422,6 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn endFrame(self: *Self) void {
-            _ = self;
-
             // Check stacks
             assert(self.container_stack.idx == 0);
             assert(self.clip_stack.idx == 0);
@@ -564,14 +562,15 @@ pub fn Context(comptime config: Config) type {
 
             assert(widths.len <= layout.widths.len);
 
+            comptime var items: usize = 0;
+            inline while (items < widths.len) : (items += 1) {
+                layout.widths[items] = widths[items];
+            }
+
             layout.position = Vec2{ .x = layout.indent, .y = layout.next_row };
             layout.size.y = height;
+            layout.items = items;
             layout.item_index = 0;
-            layout.items = 0;
-
-            while (layout.items < widths.len) : (layout.items += 1) {
-                layout.widths[layout.items] = widths[layout.items];
-            }
         }
 
         pub fn layoutWidth(self: *Self, width: i32) void {
@@ -628,14 +627,14 @@ pub fn Context(comptime config: Config) type {
             if (next_type != .Absolute) {
                 // Update position
                 layout.position.x += res.sz.x + style.spacing;
-                layout.next_row = std.math.max(layout.next_row, res.max.y + style.spacing);
+                layout.next_row = std.math.max(layout.next_row, res.pt.y + res.sz.y + style.spacing);
 
                 // Apply body offset
                 res.pt = res.pt.add(layout.body.pt);
 
                 // Update max position
-                layout.max.x = std.math.max(layout.max.x, res.x + res.w);
-                layout.max.y = std.math.max(layout.max.y, res.y + res.h);
+                layout.max.x = std.math.max(layout.max.x, res.pt.x + res.sz.x);
+                layout.max.y = std.math.max(layout.max.y, res.pt.y + res.sz.y);
             }
 
             self.last_rect = res;
