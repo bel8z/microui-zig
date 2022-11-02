@@ -1,5 +1,6 @@
 //
 // Copyright (c) 2020 rxi
+// Copyright (c) 2022 bassfault
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -21,6 +22,7 @@
 //
 
 const std = @import("std");
+const util = @import("util.zig");
 
 const assert = std.debug.assert;
 
@@ -172,7 +174,7 @@ pub const Result = packed struct {
     submit: bool = false,
     change: bool = false,
 
-    pub usingnamespace BitSet(Result, u3);
+    pub usingnamespace util.BitSet(Result, u3);
 };
 
 pub const OptionFlags = packed struct {
@@ -189,7 +191,7 @@ pub const OptionFlags = packed struct {
     closed: bool = false,
     expanded: bool = false,
 
-    pub usingnamespace BitSet(OptionFlags, u12);
+    pub usingnamespace util.BitSet(OptionFlags, u12);
 };
 
 pub const MouseButtons = packed struct {
@@ -197,7 +199,7 @@ pub const MouseButtons = packed struct {
     right: bool = false,
     middle: bool = false,
 
-    pub usingnamespace BitSet(MouseButtons, u3);
+    pub usingnamespace util.BitSet(MouseButtons, u3);
 };
 
 pub const Keys = packed struct {
@@ -207,7 +209,7 @@ pub const Keys = packed struct {
     backspace: bool = false,
     enter: bool = false,
 
-    pub usingnamespace BitSet(Keys, u5);
+    pub usingnamespace util.BitSet(Keys, u5);
 };
 
 // TODO (Matteo): Rethink command implementation.
@@ -251,7 +253,7 @@ pub const Style = struct {
     title_height: i32,
     scrollbar_size: i32,
     thumb_size: i32,
-    colors: [memberCount(ColorId)]Color,
+    colors: [util.memberCount(ColorId)]Color,
 };
 
 // NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
@@ -360,17 +362,17 @@ pub fn Context(comptime config: Config) type {
         number_edit: Id,
 
         // stacks
-        command_list: CommandList(config.command_list_size) = .{},
-        root_list: Stack(*Container, config.rootlist_size) = .{},
-        container_stack: Stack(*Container, config.container_stack_size) = .{},
-        clip_stack: Stack(Rect, config.clip_stack_size) = .{},
-        id_stack: Stack(Id, config.id_stack_size) = .{},
-        layout_stack: Stack(Layout, config.layout_stack_size) = .{},
+        command_list: util.CommandList(config.command_list_size) = .{},
+        root_list: util.Stack(*Container, config.rootlist_size) = .{},
+        container_stack: util.Stack(*Container, config.container_stack_size) = .{},
+        clip_stack: util.Stack(Rect, config.clip_stack_size) = .{},
+        id_stack: util.Stack(Id, config.id_stack_size) = .{},
+        layout_stack: util.Stack(Layout, config.layout_stack_size) = .{},
 
         // retained state pools
         containers: [config.container_pool_size]Container,
-        container_pool: Pool(config.container_pool_size) = .{},
-        treenode_pool: Pool(config.treenode_pool_size) = .{},
+        container_pool: util.Pool(config.container_pool_size) = .{},
+        treenode_pool: util.Pool(config.treenode_pool_size) = .{},
 
         // input state
         last_input: Input,
@@ -505,17 +507,6 @@ pub fn Context(comptime config: Config) type {
             cnt.zindex = self.last_zindex;
         }
 
-        fn popContainer(self: *Self) void {
-            const layout = self.peekLayout();
-            var cnt = self.getCurrentContainer();
-
-            cnt.content_size = layout.max.sub(layout.body.pt);
-
-            _ = self.container_stack.pop();
-            _ = self.layout_stack.pop();
-            self.popId();
-        }
-
         fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?*Container {
             // Try to get existing container from pool
             if (self.container_pool.get(id)) |index| {
@@ -536,6 +527,41 @@ pub fn Context(comptime config: Config) type {
             cnt.open = true;
             self.bringToFront(cnt);
             return cnt;
+        }
+
+        fn popContainer(self: *Self) void {
+            const layout = self.peekLayout();
+            var cnt = self.getCurrentContainer();
+
+            cnt.content_size = layout.max.sub(layout.body.pt);
+
+            _ = self.container_stack.pop();
+            _ = self.layout_stack.pop();
+            self.popId();
+        }
+
+        fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
+            if (!opt.no_scroll) self.scrollbars(cnt, &body);
+            self.pushLayout(body.expand(-self.style.padding), cnt.scroll);
+            cnt.body = body;
+        }
+
+        fn beginRootContainer(self: *Self, cnt: *Container) void {
+            _ = self;
+            _ = cnt;
+            @compileError("Not implemented");
+        }
+
+        fn endRootContainer(self: *Self) void {
+            _ = self;
+            @compileError("Not implemented");
+        }
+
+        fn scrollbars(self: *Self, cnt: *Container, body: *Rect) void {
+            _ = self;
+            _ = cnt;
+            _ = body;
+            @compileError("Not implemented");
         }
 
         //=== Layout management ===//
@@ -867,14 +893,19 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn endWindow(self: *Self) void {
-            _ = self;
-            @compileError("Not implemented");
+            self.popClipRect();
+            self.endRootContainer();
         }
 
         pub fn openPopup(self: *Self, name: []const u8) void {
-            _ = self;
-            _ = name;
-            @compileError("Not implemented");
+            var cnt = self.getContainer(name);
+            // Set as hover root so popup isn't closed in 'beginWindow'
+            self.next_hover_root = cnt;
+            self.hover_root = self.next_hover_root;
+            // position at mouse cursor, open and bring-to-front
+            cnt.rect = Rect{ .pt = self.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
+            cnt.open = true;
+            self.bringToFront(self, cnt);
         }
 
         pub fn beginPopup(self: *Self, name: []const u8) Result {
@@ -893,10 +924,15 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) void {
-            _ = self;
-            _ = name;
-            _ = opts;
-            @compileError("Not implemented");
+            self.pushId(name);
+            var cnt = self.getContainerById(self.last_id, opts) orelse unreachable;
+            cnt.rect = self.layoutNext();
+            if (!opts.no_frame) {
+                self.drawFrame(cnt.rect, .PanelBg);
+            }
+            self.container_stack.push(cnt);
+            self.pushContainerBody(cnt, cnt.rect, opts);
+            self.pushClipRect(cnt.body);
         }
 
         pub fn endPanel(self: *Self) void {
@@ -1030,167 +1066,9 @@ pub fn Context(comptime config: Config) type {
     };
 }
 
-//============//
-
-fn Stack(comptime T: type, comptime N: usize) type {
-    return struct {
-        items: [N]T = undefined,
-        idx: usize = 0,
-
-        const Self = @This();
-
-        fn clear(self: *Self) void {
-            self.idx = 0;
-        }
-
-        fn push(self: *Self, item: T) void {
-            assert(self.idx < self.items.len);
-            self.items[self.idx] = item;
-            self.idx += 1;
-        }
-
-        fn pop(self: *Self) T {
-            assert(self.idx > 0);
-            self.idx -= 1;
-            return self.items[self.idx];
-        }
-
-        fn peek(self: *Self) ?*T {
-            return if (self.idx == 0) null else &self.items[self.idx - 1];
-        }
-    };
-}
-
-test "Stack" {
-    const expect = std.testing.expect;
-
-    var s = Stack(i32, 5){};
-
-    try expect(s.idx == 0);
-
-    s.push(0);
-    s.push(1);
-    s.push(2);
-    s.push(3);
-    s.push(4);
-
-    try expect(s.pop() == 4);
-    try expect(s.pop() == 3);
-    try expect(s.pop() == 2);
-    try expect(s.pop() == 1);
-    try expect(s.pop() == 0);
-    try expect(s.idx == 0);
-}
-
-//============//
-
-pub const PoolItem = struct { id: Id = undefined, last_update: i32 = 0 };
-
-// TODO (Matteo): API review. At the moment multiple elements with the same ID
-// can be stored - this does not happen if the expected usage, which is to always
-// call 'get' before 'init', is followed, but this policy is not enforced in anyway.
-
-fn Pool(comptime N: usize) type {
-    return struct {
-        items: [N]PoolItem = [_]PoolItem{.{}} ** N,
-
-        const Self = @This();
-
-        pub fn init(self: *Self, id: Id, curr_frame: i32) usize {
-            var last_index = N;
-            var frame = curr_frame;
-
-            // Find the least recently updated item
-            for (self.items) |item, index| {
-                if (item.last_update < frame) {
-                    frame = item.last_update;
-                    last_index = index;
-                }
-            }
-
-            assert(last_index < N);
-
-            self.items[last_index].id = id;
-            self.items[last_index].last_update = curr_frame;
-
-            return last_index;
-        }
-
-        pub fn get(self: *Self, id: Id) ?usize {
-            for (self.items) |item, index| {
-                if (item.id == id) return index;
-            }
-
-            return null;
-        }
-
-        pub fn update(self: *Self, index: usize, curr_frame: i32) void {
-            self.items[index].last_update = curr_frame;
-        }
-    };
-}
-
-test "Pool" {
-    const expect = std.testing.expect;
-
-    var p = Pool(5){};
-
-    try expect(p.get(1) == null);
-
-    try expect(p.init(1, 0) == 0);
-    try expect(p.init(1, 0) == 1);
-
-    try expect(p.get(1).? == 0);
-    try expect(p.get(2).? == 1);
-
-    try expect(p.init(3, 5) == 0);
-    try expect(p.get(3).? == 0);
-
-    p.update(0, 5);
-
-    try expect(p.init(4, 5) == 1);
-    try expect(p.get(4).? == 4);
-}
-
-//============//
-
-fn CommandList(comptime N: usize) type {
-    return struct {
-        buffer: [N]u8 align(alignment) = undefined,
-        pos: usize = 0,
-
-        const Self = @This();
-        const alignment = @alignOf(Command);
-
-        fn clear(self: *Self) void {
-            self.pos = 0;
-        }
-
-        pub fn push(self: *Self, id: CommandId, size: usize) *Command {
-            assert(size < self.buffer.len);
-            assert(self.pos < self.buffer.len - size);
-
-            const next_pos = std.mem.alignForward(self.pos + size, alignment);
-
-            var cmd = @ptrCast(*Command, @alignCast(alignment, &self.buffer[self.pos]));
-            cmd.base.type = id;
-            cmd.base.size = next_pos - self.pos;
-
-            self.pos = next_pos;
-
-            return cmd;
-        }
-    };
-}
-
-test "CommandList" {
-    var cmds = CommandList(4096){};
-    _ = cmds.push(.Rect, @sizeOf(RectCommand));
-}
-
-//============//
-
-//  32bit fnv-1a hash
+//=====================//
+//  32bit fnv-1a hash  //
+//=====================//
 
 const HASH_INITIAL: Id = 2166136261;
 
@@ -1220,56 +1098,3 @@ test "Hash" {
     try expect(h1 != h2);
     try expect(h2 != hash(str2, HASH_INITIAL));
 }
-
-//============//
-
-fn memberCount(comptime Enum: type) usize {
-    return @typeInfo(Enum).Enum.fields.len;
-}
-
-test "memberCount" {
-    const expect = std.testing.expect;
-    try expect(memberCount(ColorId) == 14);
-}
-
-//============//
-
-/// Mixin for bitsets implemented as packed structs
-fn BitSet(comptime Struct: type, comptime Int: type) type {
-    comptime {
-        assert(@sizeOf(Struct) == @sizeOf(Int));
-    }
-
-    return struct {
-        pub inline fn none(a: Struct) bool {
-            return toInt(a) == 0;
-        }
-
-        pub inline fn any(a: Struct) bool {
-            return toInt(a) != 0;
-        }
-
-        pub inline fn toInt(self: Struct) Int {
-            return @bitCast(Int, self);
-        }
-
-        pub inline fn fromInt(value: Int) Struct {
-            return @bitCast(Struct, value);
-        }
-
-        pub inline fn unionWith(a: Struct, b: Struct) Struct {
-            return fromInt(toInt(a) | toInt(b));
-        }
-
-        pub inline fn intersectWith(a: Struct, b: Struct) Struct {
-            return fromInt(toInt(a) & toInt(b));
-        }
-
-        pub fn exceptWith(a: Struct, b: Struct) Struct {
-            return fromInt(toInt(a) & ~toInt(b));
-        }
-    };
-}
-
-//============//
-
