@@ -994,9 +994,13 @@ test "Stack" {
 
 pub const PoolItem = struct { id: Id = undefined, last_update: i32 = 0 };
 
+// TODO (Matteo): API review. At the moment multiple elements with the same ID
+// can be stored - this does not happen if the expected usage, which is to always
+// call 'get' before 'init', is followed, but this policy is not enforced in anyway.
+
 fn Pool(comptime N: usize) type {
     return struct {
-        items: [N]PoolItem = undefined,
+        items: [N]PoolItem = [_]PoolItem{.{}} ** N,
 
         const Self = @This();
 
@@ -1016,6 +1020,8 @@ fn Pool(comptime N: usize) type {
 
             self.items[last_index].id = id;
             self.items[last_index].last_update = curr_frame;
+
+            return last_index;
         }
 
         pub fn get(self: *Self, id: Id) ?usize {
@@ -1030,6 +1036,28 @@ fn Pool(comptime N: usize) type {
             self.items[index].last_update = curr_frame;
         }
     };
+}
+
+test "Pool" {
+    const expect = std.testing.expect;
+
+    var p = Pool(5){};
+
+    try expect(p.get(1) == null);
+
+    try expect(p.init(1, 0) == 0);
+    try expect(p.init(1, 0) == 1);
+
+    try expect(p.get(1).? == 0);
+    try expect(p.get(2).? == 1);
+
+    try expect(p.init(3, 5) == 0);
+    try expect(p.get(3).? == 0);
+
+    p.update(0, 5);
+
+    try expect(p.init(4, 5) == 1);
+    try expect(p.get(4).? == 4);
 }
 
 //============//
