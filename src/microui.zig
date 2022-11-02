@@ -155,8 +155,8 @@ pub const Rect = extern struct {
 
 pub const Font = struct {
     text_height: i32,
-    text_width: fn (ptr: *anyopaque, str: []const u8) i32,
-    ptr: *anyopaque,
+    text_width: fn (ptr: ?*anyopaque, str: []const u8) i32,
+    ptr: ?*anyopaque = null,
 
     pub fn measure(self: *const Font, text: []const u8) i32 {
         return self.text_width(self.ptr, text);
@@ -167,6 +167,8 @@ pub const Result = packed struct {
     active: bool = false,
     submit: bool = false,
     change: bool = false,
+
+    pub usingnamespace BitSet(Result, u3);
 };
 
 pub const OptionFlags = packed struct {
@@ -182,6 +184,8 @@ pub const OptionFlags = packed struct {
     popup: bool = false,
     closed: bool = false,
     expanded: bool = false,
+
+    pub usingnamespace BitSet(OptionFlags, u12);
 };
 
 pub const MouseButtons = packed struct {
@@ -272,7 +276,8 @@ pub fn Context(comptime config: Config) type {
         mouse_pressed: MouseButtons = .{},
         key_down: Keys = .{},
         key_pressed: Keys = .{},
-        input_text: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
+        text_buf: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
+        text_len: usize = 0,
 
         const Self = @This();
 
@@ -281,20 +286,23 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn mouseDown(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
-            self.mouseMovePt(x, y);
-
-            self.mouse_down = self.mouse_down.unionWith(btn);
-            self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+            if (btn.any()) {
+                self.mouseMove(x, y);
+                self.mouse_down = self.mouse_down.unionWith(btn);
+                self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+            }
         }
 
         pub fn mouseUp(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
-            self.mouseMovePt(x, y);
-            self.mouse_down = self.mouse_down.exceptWith(btn);
+            if (btn.any()) {
+                self.mouseMove(x, y);
+                self.mouse_down = self.mouse_down.exceptWith(btn);
+            }
         }
 
         pub inline fn scroll(self: *Self, x: i32, y: i32) void {
-            self.scroll.x += x;
-            self.scroll.y += y;
+            self.scroll_delta.x += x;
+            self.scroll_delta.y += y;
         }
 
         pub fn keyDown(self: *Self, key: Keys) void {
@@ -304,6 +312,15 @@ pub fn Context(comptime config: Config) type {
 
         pub fn keyUp(self: *Self, key: Keys) void {
             self.key_down = self.key_down.exceptWith(key);
+        }
+
+        pub fn text(self: *Self, str: []const u8) void {
+            std.mem.copy(u8, self.text_buf[self.text_len..], str);
+        }
+
+        pub fn textZ(self: *Self, str: [*:0]const u8) void {
+            const len = std.mem.len(str);
+            std.mem.copy(u8, self.text_buf[self.text_len..], str[0..len]);
         }
     };
 
@@ -428,7 +445,7 @@ pub fn Context(comptime config: Config) type {
             self.last_input.key_pressed = .{};
             self.last_input.mouse_pressed = .{};
             self.last_input.scroll_delta = .{};
-            self.last_input.input_text[0] = 0;
+            self.last_input.text_len = 0;
 
             // Sort root containers by zindex
             const compare = struct {
@@ -447,7 +464,7 @@ pub fn Context(comptime config: Config) type {
         //=== ID management ===//
 
         pub fn getId(self: *Self, data: []const u8) Id {
-            const init_id = if (self.id_stack.peek()) |id| id.* orelse HASH_INITIAL;
+            const init_id = if (self.id_stack.peek()) |id| id.* else HASH_INITIAL;
             self.last_id = hash(data, init_id);
             return self.last_id;
         }
@@ -468,7 +485,8 @@ pub fn Context(comptime config: Config) type {
         //=== Container management ===//
 
         pub fn getCurrentContainer(self: *Self) *Container {
-            return self.container_stack.peek() orelse unreachable;
+            var ptr = self.container_stack.peek() orelse unreachable;
+            return ptr.*;
         }
 
         pub fn getContainer(self: *Self, name: []u8) *Container {
@@ -485,7 +503,8 @@ pub fn Context(comptime config: Config) type {
             const layout = self.getLayout();
             var cnt = self.getCurrentContainer();
 
-            cnt.content_size = layout.max.sub(layout.body);
+            cnt.content_size.x = layout.max.x - layout.body.x;
+            cnt.content_size.y = layout.max.y - layout.body.y;
 
             _ = self.container_stack.pop();
             _ = self.layout_stack.pop();
@@ -516,7 +535,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Layout management ===//
 
-        pub fn layoutRow(self: *Self, widths: []i32, height: i32) void {
+        pub fn layoutRow(self: *Self, widths: anytype, height: i32) void {
             _ = self;
             _ = widths;
             _ = height;
@@ -569,7 +588,7 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn popClipRect(self: *Self) void {
-            self.clip_stack.pop();
+            _ = self.clip_stack.pop();
         }
 
         pub fn getClipRect(self: *Self) Rect {
@@ -749,7 +768,7 @@ pub fn Context(comptime config: Config) type {
             @compileError("Not implemented");
         }
 
-        pub fn beginTreeNode(self: *Self, id: []const u8, opts: OptionFlags) void {
+        pub fn beginTreeNode(self: *Self, id: []const u8, opts: OptionFlags) Result {
             _ = self;
             _ = id;
             _ = opts;
@@ -963,8 +982,8 @@ fn Stack(comptime T: type, comptime N: usize) type {
             return self.items[self.idx];
         }
 
-        fn peek(self: *const Self) ?*T {
-            return if (self.idx == 0) null else self.items[self.idx - 1];
+        fn peek(self: *Self) ?*T {
+            return if (self.idx == 0) null else &self.items[self.idx - 1];
         }
     };
 }

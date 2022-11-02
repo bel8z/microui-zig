@@ -103,6 +103,10 @@ pub fn build(b: *Builder) void {
         &flags,
     );
     demo_z.linkLibrary(lib);
+    demo_z.addPackage(std.build.Pkg{
+        .name = b.dupe("microui"),
+        .path = .{ .path = b.dupe("src/microui.zig") },
+    });
     setupDemo(b, target, demo_z, b.step("z", "Run the Zig demo app"));
 
     // Configure test step
