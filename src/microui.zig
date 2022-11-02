@@ -105,51 +105,55 @@ pub const Vec2 = extern struct {
     x: i32 = 0,
     y: i32 = 0,
 
-    pub fn add(l: Vec2, r: Vec2) Vec2 {
+    pub inline fn add(l: Vec2, r: Vec2) Vec2 {
         return Vec2{ .x = l.x + r.x, .y = l.y + r.y };
     }
 
-    pub fn sub(l: Vec2, r: Vec2) Vec2 {
+    pub inline fn sub(l: Vec2, r: Vec2) Vec2 {
         return Vec2{ .x = l.x - r.x, .y = l.y - r.y };
+    }
+
+    pub inline fn negate(v: Vec2) Vec2 {
+        return Vec2{ .x = -v.x, .y = -v.y };
     }
 };
 
 pub const Rect = extern struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    w: i32 = 0,
-    h: i32 = 0,
+    pt: Vec2 = .{},
+    sz: Vec2 = .{},
 
-    fn expand(rect: Rect, n: i32) Rect {
+    pub fn init(x: i32, y: i32, w: i32, h: i32) Rect {
         return Rect{
-            .x = rect.x - n,
-            .y = rect.y - n,
-            .w = rect.w + 2 * n,
-            .h = rect.h + 2 * n,
+            .pt = Vec2{ .x = x, .y = y },
+            .sz = Vec2{ .x = w, .y = h },
         };
     }
 
-    pub fn intersect(r1: Rect, r2: Rect) Rect {
-        const x1 = std.math.max(r1.x, r2.x);
-        const y1 = std.math.max(r1.y, r2.y);
-
-        var x2 = std.math.min(r1.x + r1.w, r2.x + r2.w);
-        var y2 = std.math.min(r1.y + r1.h, r2.y + r2.h);
-
-        if (x2 < x1) x2 = x1;
-        if (y2 < y1) y2 = y1;
-
+    pub fn expand(rect: Rect, n: i32) Rect {
         return Rect{
-            .x = x1,
-            .y = y1,
-            .w = x2 - x1,
-            .h = y2 - y1,
+            .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
+            .sz = Vec2{ .x = rect.sz.x + 2 * n, .y = rect.sz.y + 2 * n },
         };
+    }
+
+    pub fn intersect(ls: Rect, rs: Rect) Rect {
+        const min = Vec2{
+            .x = std.math.max(ls.pt.x, rs.pt.x),
+            .y = std.math.max(ls.pt.y, rs.pt.y),
+        };
+
+        const max = Vec2{
+            .x = std.math.min3(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x, min.x),
+            .y = std.math.min3(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y, min.y),
+        };
+
+        return Rect{ .pt = min, .sz = max - min };
     }
 
     pub fn overlaps(rect: Rect, p: Vec2) bool {
-        return p.x >= rect.x and p.x <= rect.x + rect.w and
-            p.y >= rect.y and p.y <= rect.y + rect.h;
+        const max = rect.pt + rect.sz;
+        return p.x >= rect.pt.x and p.x <= max.x and
+            p.y >= rect.min.y and p.y <= max.y;
     }
 };
 
@@ -255,77 +259,81 @@ pub const Style = struct {
 pub const DrawFrameFn = fn (self: *anyopaque, rect: Rect, color: ColorId) void;
 
 pub fn Context(comptime config: Config) type {
-    const Layout = struct {
-        body: Rect,
-        next: Rect,
-        position: Vec2,
-        size: Vec2,
-        max: Vec2,
-        widths: [config.max_widths]i32,
-        item: i32,
-        item_index: i32,
-        next_row: i32,
-        next_type: i32,
-        indent: i32,
-    };
-
-    const Input = struct {
-        mouse_pos: Vec2 = .{},
-        scroll_delta: Vec2 = .{},
-        mouse_down: MouseButtons = .{},
-        mouse_pressed: MouseButtons = .{},
-        key_down: Keys = .{},
-        key_pressed: Keys = .{},
-        text_buf: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
-        text_len: usize = 0,
-
-        const Self = @This();
-
-        pub inline fn mouseMove(self: *Self, x: i32, y: i32) void {
-            self.mouse_pos = .{ .x = x, .y = y };
-        }
-
-        pub fn mouseDown(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
-            if (btn.any()) {
-                self.mouseMove(x, y);
-                self.mouse_down = self.mouse_down.unionWith(btn);
-                self.mouse_pressed = self.mouse_pressed.unionWith(btn);
-            }
-        }
-
-        pub fn mouseUp(self: *Self, x: i32, y: i32, btn: MouseButtons) void {
-            if (btn.any()) {
-                self.mouseMove(x, y);
-                self.mouse_down = self.mouse_down.exceptWith(btn);
-            }
-        }
-
-        pub inline fn scroll(self: *Self, x: i32, y: i32) void {
-            self.scroll_delta.x += x;
-            self.scroll_delta.y += y;
-        }
-
-        pub fn keyDown(self: *Self, key: Keys) void {
-            self.key_down = self.key_down.unionWith(key);
-            self.key_pressed = self.key_pressed.unionWith(key);
-        }
-
-        pub fn keyUp(self: *Self, key: Keys) void {
-            self.key_down = self.key_down.exceptWith(key);
-        }
-
-        pub fn text(self: *Self, str: []const u8) void {
-            std.mem.copy(u8, self.text_buf[self.text_len..], str);
-        }
-
-        pub fn textZ(self: *Self, str: [*:0]const u8) void {
-            const len = std.mem.len(str);
-            std.mem.copy(u8, self.text_buf[self.text_len..], str[0..len]);
-        }
-    };
-
     return struct {
+        //=== Inner types ===//
+
+        // NOTE (Matteo): Declare here because are configurable
+
         pub const Real = config.real;
+
+        pub const Input = struct {
+            mouse_pos: Vec2 = .{},
+            scroll_delta: Vec2 = .{},
+            mouse_down: MouseButtons = .{},
+            mouse_pressed: MouseButtons = .{},
+            key_down: Keys = .{},
+            key_pressed: Keys = .{},
+            text_buf: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
+            text_len: usize = 0,
+
+            pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
+                self.mouse_pos = .{ .x = x, .y = y };
+            }
+
+            pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+                if (btn.any()) {
+                    self.mouseMove(x, y);
+                    self.mouse_down = self.mouse_down.unionWith(btn);
+                    self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+                }
+            }
+
+            pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+                if (btn.any()) {
+                    self.mouseMove(x, y);
+                    self.mouse_down = self.mouse_down.exceptWith(btn);
+                }
+            }
+
+            pub inline fn scroll(self: *Input, x: i32, y: i32) void {
+                self.scroll_delta.x += x;
+                self.scroll_delta.y += y;
+            }
+
+            pub fn keyDown(self: *Input, key: Keys) void {
+                self.key_down = self.key_down.unionWith(key);
+                self.key_pressed = self.key_pressed.unionWith(key);
+            }
+
+            pub fn keyUp(self: *Input, key: Keys) void {
+                self.key_down = self.key_down.exceptWith(key);
+            }
+
+            pub fn text(self: *Input, str: []const u8) void {
+                std.mem.copy(u8, self.text_buf[self.text_len..], str);
+            }
+
+            pub fn textZ(self: *Input, str: [*:0]const u8) void {
+                const len = std.mem.len(str);
+                std.mem.copy(u8, self.text_buf[self.text_len..], str[0..len]);
+            }
+        };
+
+        const LayoutType = enum(u2) { None = 0, Relative = 1, Absolute = 2 };
+
+        const Layout = struct {
+            body: Rect = .{},
+            next: Rect = .{},
+            position: Vec2 = .{},
+            size: Vec2 = .{},
+            max: Vec2 = .{},
+            widths: [config.max_widths]i32 = [_]i32{0} ** config.max_widths,
+            items: usize = 0,
+            item_index: usize = 0,
+            next_row: i32 = 0,
+            next_type: LayoutType = .None,
+            indent: i32 = 0,
+        };
 
         const Self = @This();
 
@@ -500,11 +508,10 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn popContainer(self: *Self) void {
-            const layout = self.getLayout();
+            const layout = self.peekLayout();
             var cnt = self.getCurrentContainer();
 
-            cnt.content_size.x = layout.max.x - layout.body.x;
-            cnt.content_size.y = layout.max.y - layout.body.y;
+            cnt.content_size = layout.max.sub(layout.body.pt);
 
             _ = self.container_stack.pop();
             _ = self.layout_stack.pop();
@@ -535,48 +542,115 @@ pub fn Context(comptime config: Config) type {
 
         //=== Layout management ===//
 
-        pub fn layoutRow(self: *Self, widths: anytype, height: i32) void {
-            _ = self;
-            _ = widths;
-            _ = height;
-            @compileError("Not implemented");
-        }
-
-        pub fn layoutWidth(self: *Self, width: i32) void {
-            _ = self;
-            _ = width;
-            @compileError("Not implemented");
-        }
-
-        pub fn layoutHeight(self: *Self, height: i32) void {
-            _ = self;
-            _ = height;
-            @compileError("Not implemented");
-        }
-
         pub fn layoutBeginColumn(self: *Self) void {
-            _ = self;
-            @compileError("Not implemented");
+            self.pushLayout(self.layoutNext(), .{});
         }
 
         pub fn layoutEndColumn(self: *Self) void {
-            _ = self;
-            @compileError("Not implemented");
+            const src = self.layout_stack.pop();
+            var dst = self.peekLayout();
+
+            // Inherit position/next_row/max from child layout if they are greater
+            const dpos = src.body.pt.sub(dst.body.pt);
+
+            dst.position.x = std.math.max(dst.position.x, src.position.x + dpos.x);
+            dst.next_row = std.math.max(dst.next_row, src.next_row + dpos.y);
+            dst.max.x = std.math.max(dst.max.x, src.max.x);
+            dst.max.y = std.math.max(dst.max.y, src.max.y);
+        }
+
+        pub fn layoutRow(self: *Self, widths: anytype, height: i32) void {
+            var layout = self.peekLayout();
+
+            assert(widths.len <= layout.widths.len);
+
+            layout.position = Vec2{ .x = layout.indent, .y = layout.next_row };
+            layout.size.y = height;
+            layout.item_index = 0;
+            layout.items = 0;
+
+            while (layout.items < widths.len) : (layout.items += 1) {
+                layout.widths[layout.items] = widths[layout.items];
+            }
+        }
+
+        pub fn layoutWidth(self: *Self, width: i32) void {
+            self.peekLayout().size.x = width;
+        }
+
+        pub fn layoutHeight(self: *Self, height: i32) void {
+            self.peekLayout().size.y = height;
         }
 
         pub fn layoutSetNext(self: *Self, r: Rect, relative: bool) void {
-            _ = self;
-            _ = r;
-            _ = relative;
-            @compileError("Not implemented");
+            var layout = self.peekLayout();
+            layout.next = r;
+            layout.next_type = if (relative) .Relative else .Absolute;
         }
 
         pub fn layoutNext(self: *Self) Rect {
-            _ = self;
-            @compileError("Not implemented");
+            var res: Rect = undefined;
+            var layout = self.peekLayout();
+            const style = self.style;
+            const next_type = layout.next_type;
+
+            if (next_type != .None) {
+                // Handle rect set by `layoutSetNext'
+                layout.next_type = .None;
+                res = layout.next;
+            } else {
+                // Handle next row
+                if (layout.item_index == layout.items) {
+                    // NOTE (Matteo): Repositioning on the next row - original
+                    // call was mu_layout_row(ctx, layout->items, NULL, layout->size.y)
+                    layout.position = Vec2{ .x = layout.indent, .y = layout.next_row };
+                    layout.item_index = 0;
+                }
+
+                // Position
+                res.pt = layout.position;
+
+                // Size
+                res.sz = layout.size;
+
+                if (layout.items > 0) res.sz.x = layout.widths[layout.item_index];
+
+                if (res.sz.x == 0) res.sz.x = style.size.x + 2 * style.padding;
+                if (res.sz.y == 0) res.sz.y = style.size.y + 2 * style.padding;
+
+                if (res.sz.x < 0) res.sz.x += layout.body.sz.x - res.pt.x + 1;
+                if (res.sz.y < 0) res.sz.y += layout.body.sz.y - res.pt.y + 1;
+
+                // Advance
+                layout.item_index += 1;
+            }
+
+            if (next_type != .Absolute) {
+                // Update position
+                layout.position.x += res.sz.x + style.spacing;
+                layout.next_row = std.math.max(layout.next_row, res.max.y + style.spacing);
+
+                // Apply body offset
+                res.pt = res.pt.add(layout.body.pt);
+
+                // Update max position
+                layout.max.x = std.math.max(layout.max.x, res.x + res.w);
+                layout.max.y = std.math.max(layout.max.y, res.y + res.h);
+            }
+
+            self.last_rect = res;
+            return res;
         }
 
-        fn getLayout(self: *Self) *Layout {
+        fn pushLayout(self: *Self, body: Rect, scroll: Vec2) void {
+            self.layout_stack.push(Layout{
+                .body = Rect{ .pt = body.pt.sub(scroll), .sz = body.sz },
+                .max = Vec2{ .x = -0x1000000, .y = -0x1000000 },
+            });
+            self.layoutRow(.{0}, 0);
+        }
+
+        fn peekLayout(self: *Self) *Layout {
             return self.layout_stack.peek() orelse unreachable;
         }
 
@@ -887,30 +961,30 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn drawBox(self: *Self, rect: Rect, color: Color) void {
-            self.drawRect(.{
-                .x = rect.x + 1,
-                .y = rect.y,
-                .w = rect.w - 2,
-                .h = 1,
-            }, color);
-            self.drawRect(.{
-                .x = rect.x + 1,
-                .y = rect.y + rect.h - 1,
-                .w = rect.w - 2,
-                .h = 1,
-            }, color);
-            self.drawRect(.{
-                .x = rect.x,
-                .y = rect.y,
-                .w = 1,
-                .h = rect.h,
-            }, color);
-            self.drawRect(.{
-                .x = rect.x + rect.w - 1,
-                .y = rect.y,
-                .w = 1,
-                .h = rect.h,
-            }, color);
+            self.drawRect(Rect.init(
+                rect.pt.x + 1,
+                rect.pt.y,
+                rect.sz.x - 2,
+                1,
+            ), color);
+            self.drawRect(Rect.init(
+                rect.pt.x + 1,
+                rect.pt.y + rect.sz.y - 1,
+                rect.sz.x - 2,
+                1,
+            ), color);
+            self.drawRect(Rect.init(
+                rect.pt.x,
+                rect.pt.y,
+                1,
+                rect.sz.y,
+            ), color);
+            self.drawRect(Rect.init(
+                rect.pt.x + rect.sz.x - 1,
+                rect.pt.y,
+                1,
+                rect.sz.y,
+            ), color);
         }
 
         pub fn drawText(self: *Self, font: *Font, str: []const u8, pos: Vec2, color: Color) void {

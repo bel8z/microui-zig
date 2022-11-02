@@ -180,12 +180,12 @@ fn writeLog(text: [:0]const u8) void {
 
 fn testWindow(ctx: *Context) !void {
     // do window
-    if (ctx.beginWindow("Demo Window", mu.Rect{ .x = 40, .y = 40, .w = 300, .h = 450 }, .{}).any()) {
+    if (ctx.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{}).any()) {
         defer ctx.endWindow();
 
         var win = ctx.getCurrentContainer();
-        win.*.rect.w = std.math.max(win.*.rect.w, 240);
-        win.*.rect.h = std.math.max(win.*.rect.h, 300);
+        win.*.rect.sz.x = std.math.max(win.*.rect.sz.x, 240);
+        win.*.rect.sz.y = std.math.max(win.*.rect.sz.y, 300);
 
         // window info */
         if (ctx.header("Window Info", .{}).any()) {
@@ -197,14 +197,14 @@ fn testWindow(ctx: *Context) !void {
             ctx.label(try std.fmt.bufPrint(
                 buf[0..],
                 "{}, {}",
-                .{ win.*.rect.x, win.*.rect.y },
+                .{ win.*.rect.pt.x, win.*.rect.pt.y },
             ));
 
             ctx.label("Size:");
             ctx.label(try std.fmt.bufPrint(
                 buf[0..],
                 "{}, {}",
-                .{ win.*.rect.w, win.*.rect.h },
+                .{ win.*.rect.sz.x, win.*.rect.sz.y },
             ));
         }
 
@@ -312,7 +312,7 @@ fn testWindow(ctx: *Context) !void {
 }
 
 fn logWindow(ctx: *Context) void {
-    if (ctx.beginWindow("Log Window", mu.Rect{ .x = 350, .y = 40, .w = 300, .h = 200 }, .{}).any()) {
+    if (ctx.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{}).any()) {
         defer ctx.endWindow();
 
         //  output text panel
@@ -354,10 +354,10 @@ fn logWindow(ctx: *Context) void {
 }
 
 fn styleWindow(ctx: *Context) void {
-    if (ctx.beginWindow("Style Editor", mu.Rect{ .x = 350, .y = 250, .w = 300, .h = 240 }, .{}).any()) {
+    if (ctx.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{}).any()) {
         defer ctx.endWindow();
 
-        const width = ctx.getCurrentContainer().*.body.w;
+        const width = ctx.getCurrentContainer().*.body.sz.x;
         const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
         ctx.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
