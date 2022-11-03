@@ -66,7 +66,7 @@ test "Stack" {
 
 //============//
 
-const PoolItem = struct { id: Id = undefined, last_update: i32 = 0 };
+const PoolItem = struct { id: Id = undefined, last_update: u32 = 0 };
 
 // TODO (Matteo): API review. At the moment multiple elements with the same ID
 // can be stored - this does not happen if the expected usage, which is to always
@@ -78,7 +78,7 @@ pub fn Pool(comptime N: usize) type {
 
         const Self = @This();
 
-        pub fn init(self: *Self, id: Id, curr_frame: i32) usize {
+        pub fn init(self: *Self, id: Id, curr_frame: u32) usize {
             var last_index = N;
             var frame = curr_frame;
 
@@ -106,7 +106,7 @@ pub fn Pool(comptime N: usize) type {
             return null;
         }
 
-        pub fn update(self: *Self, index: usize, curr_frame: i32) void {
+        pub fn update(self: *Self, index: usize, curr_frame: u32) void {
             self.items[index].last_update = curr_frame;
         }
     };
@@ -161,6 +161,14 @@ pub fn CommandList(comptime N: usize) type {
             self.pos = next_pos;
 
             return cmd;
+        }
+
+        pub fn head(self: *Self) *mu.Command {
+            return @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[0]));
+        }
+
+        pub fn tail(self: *Self) *mu.Command {
+            return @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[self.pos]));
         }
     };
 }

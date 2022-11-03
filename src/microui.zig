@@ -134,7 +134,7 @@ pub const Rect = extern struct {
             .y = std.math.min3(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y, min.y),
         };
 
-        return Rect{ .pt = min, .sz = max - min };
+        return Rect{ .pt = min, .sz = max.sub(min) };
     }
 
     pub fn overlaps(rect: Rect, p: Vec2) bool {
@@ -219,14 +219,14 @@ pub const Command = extern union {
 };
 
 pub const Container = struct {
-    head: *Command,
-    tail: *Command,
-    rect: Rect,
-    body: Rect,
-    content_size: Vec2,
-    scroll: Vec2,
-    zindex: i32,
-    open: bool,
+    head: ?*Command = null,
+    tail: ?*Command = null,
+    rect: Rect = .{},
+    body: Rect = .{},
+    content_size: Vec2 = .{},
+    scroll: Vec2 = .{},
+    zindex: i32 = 0,
+    open: bool = false,
 };
 
 pub const Style = struct {
@@ -323,6 +323,8 @@ pub fn Context(comptime config: Config) type {
         };
 
         const Self = @This();
+
+        const unclipped_rect = Rect.init(0, 0, 0x1000000, 0x1000000);
 
         //=== Data ===//
 
@@ -452,6 +454,22 @@ pub fn Context(comptime config: Config) type {
 
             // TODO (Matteo)
             // Set root container jump commands
+            for (self.root_list.items[0..n]) |cnt, i| {
+                const dst = @ptrToInt(cnt.head.?) + @sizeOf(JumpCommand);
+                // If this is the first container then make the first command jump to it.
+                // Otherwise set the previous container's tail to jump to this one
+                if (i == 0) {
+                    var cmd = self.command_list.head();
+                    cmd.jump.dst = dst;
+                } else {
+                    var prev = self.root_list.items[i - 1];
+                    prev.tail.?.jump.dst = dst;
+                }
+                // Make the last container's tail jump to the end of command list
+                if (i == n - 1) {
+                    cnt.tail.?.jump.dst = @ptrToInt(self.command_list.tail());
+                }
+            }
         }
 
         //=== ID management ===//
@@ -482,7 +500,7 @@ pub fn Context(comptime config: Config) type {
             return ptr.*;
         }
 
-        pub fn getContainer(self: *Self, name: []u8) *Container {
+        pub fn getContainer(self: *Self, name: []const u8) *Container {
             const id = self.getId(name);
             return self.getContainerById(id, .{}) orelse unreachable;
         }
@@ -507,9 +525,7 @@ pub fn Context(comptime config: Config) type {
             // Container not found in pool, init a new one
             const index = self.container_pool.init(id, self.frame);
             const cnt = &self.containers[index];
-            // TODO (Matteo): Can be improved?
-            cnt.* = std.mem.zeroInit(Container, .{});
-            cnt.open = true;
+            cnt.* = Container{ .open = true };
             self.bringToFront(cnt);
             return cnt;
         }
@@ -526,20 +542,43 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
-            if (!opt.no_scroll) self.scrollbars(cnt, &body);
-            self.pushLayout(body.expand(-self.style.padding), cnt.scroll);
             cnt.body = body;
+            if (!opt.no_scroll) self.scrollbars(cnt, &cnt.body);
+            self.pushLayout(body.expand(-self.style.padding), cnt.scroll);
         }
 
         fn beginRootContainer(self: *Self, cnt: *Container) void {
-            _ = self;
-            _ = cnt;
-            @compileError("Not implemented");
+            self.container_stack.push(cnt);
+            self.root_list.push(cnt);
+            // Push head command
+            var cmd = self.pushCommand(.Jump, @sizeOf(JumpCommand));
+            cmd.jump.dst = 0;
+            cnt.head = cmd;
+            // Set as hover root if the mouse is overlapping this container and it has a
+            // higher zindex than the current hover root
+            if (cnt.rect.overlaps(self.last_input.mouse_pos) and
+                (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
+            {
+                self.next_hover_root = cnt;
+            }
+            // Clipping is reset here in case a root-container is made within
+            // another root-containers's begin/end block; this prevents the inner
+            // root-container being clipped to the outer
+            self.clip_stack.push(unclipped_rect);
         }
 
         fn endRootContainer(self: *Self) void {
-            _ = self;
-            @compileError("Not implemented");
+            // Push tail 'goto' jump command and set head 'skip' command. the final steps
+            // on initing these are done in 'endFrame'
+            var cmd = self.pushCommand(.Jump, @sizeOf(JumpCommand));
+            cmd.jump.dst = 0;
+
+            var cnt = self.getCurrentContainer();
+            cnt.tail = cmd;
+            cnt.head.?.jump.dst = @ptrToInt(self.command_list.tail());
+            // Pop base clip rect and container
+            self.popClipRect();
+            self.popContainer();
         }
 
         fn scrollbars(self: *Self, cnt: *Container, body: *Rect) void {
@@ -667,20 +706,20 @@ pub fn Context(comptime config: Config) type {
         //=== Clipping ===//
 
         pub fn pushClipRect(self: *Self, rect: Rect) void {
-            const last = self.getClipRect();
-            self.clip_stack.push(rect.intersect(last));
+            const last = self.peekClipRect();
+            self.clip_stack.push(last.intersect(rect));
         }
 
         pub fn popClipRect(self: *Self) void {
             _ = self.clip_stack.pop();
         }
 
-        pub fn getClipRect(self: *Self) Rect {
-            self.clip_stack.peek() orelse unreachable;
+        pub fn peekClipRect(self: *Self) *const Rect {
+            return self.clip_stack.peek() orelse unreachable;
         }
 
         pub fn checkClip(self: *Self, r: Rect) Clip {
-            const c = self.getClipRect();
+            const c = self.peekClipRect();
 
             const rx1 = r.x + r.w;
             const ry1 = r.y + r.h;
@@ -706,9 +745,24 @@ pub fn Context(comptime config: Config) type {
         //=== Controls ===//
 
         pub fn mouseOver(self: *Self, rect: Rect) bool {
-            _ = self;
-            _ = rect;
-            @compileError("Not implemented");
+            const mouse = self.last_input.mouse_pos;
+            return rect.overlaps(mouse) and
+                self.peekClipRect().overlaps(mouse) and
+                self.inHoverRoot();
+        }
+
+        fn inHoverRoot(self: *Self) bool {
+            var i = self.container_stack.idx;
+
+            while (i > 0) {
+                i -= 1;
+                if (self.container_stack.items[i] == self.hover_root) return true;
+                // Only root containers have their `head` field set; stop searching
+                // if we've reached the current root container
+                if (self.container_stack.items[i].head != null) break;
+            }
+
+            return false;
         }
 
         pub fn updateControl(
@@ -731,9 +785,7 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn label(self: *Self, str: []const u8) void {
-            _ = self;
-            _ = str;
-            @compileError("Not implemented");
+            self.drawControlText(str, self.layoutNext(), .Text, .{});
         }
 
         pub inline fn button(self: *Self, id: []const u8) Result {
@@ -761,10 +813,7 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn textbox(self: *Self, buf: []u8, opts: OptionFlags) Result {
-            _ = self;
-            _ = buf;
-            _ = opts;
-            @compileError("Not implemented");
+            return self.textboxRaw(buf, self.getId(buf), self.layoutNext(), opts);
         }
 
         pub fn textboxRaw(
@@ -834,34 +883,118 @@ pub fn Context(comptime config: Config) type {
             self: *Self,
             value: *Real,
             step: Real,
-            fmt: []const u8,
+            comptime fmt: []const u8,
             opts: OptionFlags,
         ) Result {
+            const id = self.getId(std.mem.asBytes(&value));
+            const base = self.layoutNext();
+            const last = value.*;
+
+            // Handle text input mode
+            if (self.numberTextbox(value, base, id)) return Result{};
+
+            // Handle normal mode
+            self.updateControl(id, base, opts);
+
+            // Handle input
+            if (self.focus == id and self.mouse_down.left) {
+                value.* += self.mouse_delta.x * step;
+            }
+
+            // Draw base
+            self.drawControlFrame(id, base, .Base, opts);
+
+            // Draw text
+            var buf: [config.max_fmt + 1]u8 = undefined;
+            self.drawControlText(
+                std.fmt.bufPrint(buf, fmt, .{value.*}) catch unreachable,
+                base,
+                .Text,
+                opts,
+            );
+
+            // Set flag if value changed
+            return Result{ .change = (value.* != last) };
+        }
+
+        fn numberTextbox(
+            self: *Self,
+            value: *Real,
+            r: Rect,
+            id: Id,
+        ) bool {
             _ = self;
             _ = value;
-            _ = step;
-            _ = fmt;
-            _ = opts;
+            _ = r;
+            _ = id;
             @compileError("Not implemented");
         }
 
         pub fn header(self: *Self, id: []const u8, opts: OptionFlags) Result {
-            _ = self;
-            _ = id;
-            _ = opts;
-            @compileError("Not implemented");
+            return self.headerInternal(id, false, opts);
         }
 
         pub fn beginTreeNode(self: *Self, id: []const u8, opts: OptionFlags) Result {
-            _ = self;
-            _ = id;
-            _ = opts;
-            @compileError("Not implemented");
+            const res = self.headerInternal(id, true, opts);
+            if (res.active) {
+                self.peekLayout().indent += self.style.indent;
+                self.id_stack.push(self.last_id);
+            }
+            return res;
         }
 
         pub fn endTreeNode(self: *Self) void {
-            _ = self;
-            @compileError("Not implemented");
+            self.peekLayout().indent -= self.style.indent;
+            self.popId();
+        }
+
+        fn headerInternal(
+            self: *Self,
+            id_str: []const u8,
+            is_treenode: bool,
+            opts: OptionFlags,
+        ) Result {
+            const id = self.getId(id_str);
+            const pool_index = self.treenode_pool.get(id);
+            const was_active = (pool_index != null);
+            const expanded = opts.expanded != was_active; // opts.expanded XOR was_active
+            var r = self.layoutNext();
+
+            // Handle click
+            self.updateControl(id, r, .{});
+            const clicked = (self.last_input.mouse_pressed.left and self.focus == id);
+            const is_active = (was_active != clicked);
+
+            // Update pool ref
+            if (pool_index) |index| {
+                if (is_active) {
+                    self.treenode_pool.update(index, self.frame);
+                } else { // TODO (Matteo): Better clearing
+                    self.treenode_pool.items[index] = .{};
+                }
+            } else if (is_active) {
+                _ = self.treenode_pool.init(id, self.frame);
+            }
+
+            // Draw
+            if (is_treenode) {
+                if (self.hover == id) self.drawFrame(r, .ButtonHover);
+            } else {
+                self.drawControlFrame(id, r, .Button, .{});
+            }
+
+            self.drawIcon(
+                if (expanded) .Expanded else .Collapsed,
+                Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
+                self.style.colors[@enumToInt(ColorId.Text)],
+            );
+
+            r.pt.x += r.sz.y - self.style.padding;
+            r.pt.y -= r.sz.y - self.style.padding;
+
+            self.drawControlText(id_str, r, .Text, .{});
+
+            return Result{ .active = expanded };
         }
 
         pub fn beginWindow(
@@ -888,9 +1021,9 @@ pub fn Context(comptime config: Config) type {
             self.next_hover_root = cnt;
             self.hover_root = self.next_hover_root;
             // position at mouse cursor, open and bring-to-front
-            cnt.rect = Rect{ .pt = self.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
+            cnt.rect = Rect{ .pt = self.last_input.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
             cnt.open = true;
-            self.bringToFront(self, cnt);
+            self.bringToFront(cnt);
         }
 
         pub fn beginPopup(self: *Self, name: []const u8) Result {
