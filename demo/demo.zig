@@ -1,12 +1,23 @@
 const std = @import("std");
 
 const c = @cImport({
-    @cInclude("demo.h");
+    @cInclude("SDL2/SDL.h");
 });
 
 const mu = @import("microui");
 const Context = mu.Context(.{});
 const Font = mu.Font;
+
+// Render API
+extern fn r_init(width: c_int, height: c_int) void;
+extern fn r_draw_rect(rect: mu.Rect, color: mu.Color) void;
+extern fn r_draw_text(text: [*]const u8, pos: mu.Vec2, color: mu.Color) void;
+extern fn r_draw_icon(id: mu.Icon, rect: mu.Rect, color: mu.Color) void;
+extern fn r_get_text_width(text: [*]const u8, len: c_int) c_int;
+extern fn r_get_text_height() c_int;
+extern fn r_set_clip_rect(rect: mu.Rect) void;
+extern fn r_clear(color: mu.Color) void;
+extern fn r_flush() void;
 
 const button_map = init: {
     var value = [_]mu.MouseButtons{.{}} ** 256;
@@ -73,13 +84,13 @@ pub fn main() !void {
     );
     _ = c.SDL_GL_CreateContext(window);
 
-    c.r_init(width, height);
+    r_init(width, height);
 
     // init microui
 
     const f = Font{
         .ptr = null,
-        .text_height = c.r_get_text_height(),
+        .text_height = r_get_text_height(),
         .text_width = textWidth,
     };
 
@@ -135,7 +146,7 @@ pub fn main() !void {
 
         // TODO (Matteo): TEST RENDERING!!!
         // render
-        // c.r_clear(mu.Color{
+        // r_clear(mu.Color{
         //     .r = @floatToInt(u8, bg[0]),
         //     .g = @floatToInt(u8, bg[1]),
         //     .b = @floatToInt(u8, bg[2]),
@@ -145,21 +156,21 @@ pub fn main() !void {
         var iter = ctx.command_list.iter();
         while (iter.next()) |cmd| {
             switch (cmd.type) {
-                .Text => {}, // c.r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),
-                .Rect => {}, // c.r_draw_rect(cmd.rect.rect, cmd.rect.color),
-                .Icon => {}, // c.r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
-                .Clip => {}, // c.r_set_clip_rect(cmd.clip.rect),
+                .Text => {}, // r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),
+                .Rect => r_draw_rect(cmd.rect.rect, cmd.rect.color),
+                .Icon => r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
+                .Clip => r_set_clip_rect(cmd.clip.rect),
                 else => unreachable,
             }
         }
-        c.r_flush();
+        r_flush();
         _ = c.SDL_GL_SwapWindow(window);
     }
 }
 
 fn textWidth(ptr: ?*anyopaque, str: []const u8) i32 {
     _ = ptr;
-    return c.r_get_text_width(str.ptr, @intCast(c_int, str.len));
+    return r_get_text_width(str.ptr, @intCast(c_int, str.len));
 }
 
 fn writeLog(text: [:0]const u8) void {
