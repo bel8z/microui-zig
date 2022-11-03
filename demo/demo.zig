@@ -141,17 +141,17 @@ pub fn main() !void {
         //     .b = @floatToInt(u8, bg[2]),
         //     .a = 255,
         // });
-        // var maybe_cmd: ?*ctx.Command = null;
-        // while (ctx.next_command(&maybe_cmd) != 0) {
-        //     const cmd = maybe_cmd orelse unreachable;
-        //     switch (cmd.type) {
-        //         ctx.COMMAND_TEXT => c.r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),
-        //         ctx.COMMAND_RECT => c.r_draw_rect(cmd.rect.rect, cmd.rect.color),
-        //         ctx.COMMAND_ICON => c.r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
-        //         ctx.COMMAND_CLIP => c.r_set_clip_rect(cmd.clip.rect),
-        //         else => unreachable,
-        //     }
-        // }
+
+        var iter = ctx.command_list.iter();
+        while (iter.next()) |cmd| {
+            switch (cmd.type) {
+                .Text => {}, // c.r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),
+                .Rect => {}, // c.r_draw_rect(cmd.rect.rect, cmd.rect.color),
+                .Icon => {}, // c.r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
+                .Clip => {}, // c.r_set_clip_rect(cmd.clip.rect),
+                else => unreachable,
+            }
+        }
         c.r_flush();
         _ = c.SDL_GL_SwapWindow(window);
     }

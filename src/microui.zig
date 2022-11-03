@@ -50,7 +50,7 @@ pub const Clip = enum(u2) {
     All,
 };
 
-pub const CommandId = enum(u32) {
+pub const CommandType = enum(u32) {
     None,
     Jump,
     Clip,
@@ -201,15 +201,34 @@ pub const Keys = packed struct {
 // The current solution works pretty well in C but seems a bit foreign in Zig;
 // furthermore, I'd like to provide easy extension with user-defined commands.
 
-pub const BaseCommand = extern struct { type: CommandId, size: usize };
+pub const BaseCommand = extern struct { type: CommandType, size: usize };
 pub const JumpCommand = extern struct { base: BaseCommand, dst: usize };
 pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
 pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
-pub const TextCommand = extern struct { base: BaseCommand, font: *const Font, pos: Vec2, color: Color, str: [*:0]u8 };
 pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
 
+pub const TextCommand = extern struct {
+    base: BaseCommand,
+    font: *const Font,
+    pos: Vec2,
+    color: Color,
+    len: usize,
+
+    pub fn read(cmd: *const TextCommand) []const u8 {
+        const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
+        const ptr = @intToPtr([*]const u8, pos);
+        return ptr[0..cmd.len];
+    }
+
+    pub fn write(cmd: *TextCommand) []u8 {
+        const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
+        const ptr = @intToPtr([*]u8, pos);
+        return ptr[0..cmd.len];
+    }
+};
+
 pub const Command = extern union {
-    type: CommandId,
+    type: CommandType,
     base: BaseCommand,
     jump: JumpCommand,
     clip: ClipCommand,
@@ -219,8 +238,8 @@ pub const Command = extern union {
 };
 
 pub const Container = struct {
-    head: ?*Command = null,
-    tail: ?*Command = null,
+    head: usize = 0,
+    tail: usize = 0,
     rect: Rect = .{},
     body: Rect = .{},
     content_size: Vec2 = .{},
@@ -455,19 +474,18 @@ pub fn Context(comptime config: Config) type {
             // TODO (Matteo)
             // Set root container jump commands
             for (self.root_list.items[0..n]) |cnt, i| {
-                const dst = @ptrToInt(cnt.head.?) + @sizeOf(JumpCommand);
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
-                if (i == 0) {
-                    var cmd = self.command_list.head();
-                    cmd.jump.dst = dst;
-                } else {
-                    var prev = self.root_list.items[i - 1];
-                    prev.tail.?.jump.dst = dst;
-                }
+                var cmd = if (i == 0)
+                    self.command_list.get(0)
+                else
+                    self.command_list.get(self.root_list.items[i - 1].tail);
+
+                cmd.jump.dst = cnt.head + @sizeOf(JumpCommand);
+
                 // Make the last container's tail jump to the end of command list
                 if (i == n - 1) {
-                    cnt.tail.?.jump.dst = @ptrToInt(self.command_list.tail());
+                    self.command_list.get(cnt.tail).jump.dst = self.command_list.tail;
                 }
             }
         }
@@ -551,9 +569,7 @@ pub fn Context(comptime config: Config) type {
             self.container_stack.push(cnt);
             self.root_list.push(cnt);
             // Push head command
-            var cmd = self.pushCommand(.Jump, @sizeOf(JumpCommand));
-            cmd.jump.dst = 0;
-            cnt.head = cmd;
+            cnt.head = self.command_list.pushJump();
             // Set as hover root if the mouse is overlapping this container and it has a
             // higher zindex than the current hover root
             if (cnt.rect.overlaps(self.last_input.mouse_pos) and
@@ -568,14 +584,11 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn endRootContainer(self: *Self) void {
+            var cnt = self.getCurrentContainer();
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
             // on initing these are done in 'endFrame'
-            var cmd = self.pushCommand(.Jump, @sizeOf(JumpCommand));
-            cmd.jump.dst = 0;
-
-            var cnt = self.getCurrentContainer();
-            cnt.tail = cmd;
-            cnt.head.?.jump.dst = @ptrToInt(self.command_list.tail());
+            cnt.tail = self.command_list.pushJump();
+            self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
             // Pop base clip rect and container
             self.popClipRect();
             self.popContainer();
@@ -721,20 +734,20 @@ pub fn Context(comptime config: Config) type {
         pub fn checkClip(self: *Self, r: Rect) Clip {
             const c = self.peekClipRect();
 
-            const rx1 = r.x + r.w;
-            const ry1 = r.y + r.h;
+            const rx1 = r.pt.x + r.sz.x;
+            const ry1 = r.pt.y + r.sz.y;
 
-            const cx1 = c.x + c.w;
-            const cy1 = c.y + c.h;
+            const cx1 = c.pt.x + c.sz.x;
+            const cy1 = c.pt.y + c.sz.y;
 
-            if (r.x > cx1 or rx1 < c.x or
-                r.y > cy1 or ry1 < c.y)
+            if (r.pt.x > cx1 or rx1 < c.pt.x or
+                r.pt.y > cy1 or ry1 < c.pt.y)
             {
                 return .All;
             }
 
-            if (r.x >= c.x and rx1 <= cx1 and
-                r.y >= c.y and ry1 <= cy1)
+            if (r.pt.x >= c.pt.x and rx1 <= cx1 and
+                r.pt.y >= c.pt.y and ry1 <= cy1)
             {
                 return .None;
             }
@@ -1063,18 +1076,6 @@ pub fn Context(comptime config: Config) type {
         // TODO (Matteo): move the drawing functions on the command list directly?
         // Can help a bit with code organization, since it is the only state touched.
 
-        pub fn pushCommand(self: *Self, id: CommandId, size: usize) *Command {
-            return self.command_list.push(id, size);
-        }
-
-        // TODO (Matteo): Command iteration
-
-        pub fn setClip(self: *Self, rect: Rect) void {
-            _ = self;
-            _ = rect;
-            @compileError("Not implemented");
-        }
-
         pub fn drawControlFrame(
             self: *Self,
             id: Id,
@@ -1106,11 +1107,11 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn drawRect(self: *Self, rect: Rect, color: Color) void {
-            _ = self;
-            _ = rect;
-            _ = color;
-            // Not implemented
-            unreachable;
+            const clipped = self.peekClipRect().intersect(rect);
+
+            if (clipped.sz.x > 0 and clipped.sz.y > 0) {
+                self.command_list.pushRect(rect, color);
+            }
         }
 
         pub fn drawBox(self: *Self, rect: Rect, color: Color) void {
@@ -1140,21 +1141,40 @@ pub fn Context(comptime config: Config) type {
             ), color);
         }
 
-        pub fn drawText(self: *Self, font: *Font, str: []const u8, pos: Vec2, color: Color) void {
-            _ = self;
-            _ = font;
-            _ = str;
-            _ = pos;
-            _ = color;
-            @compileError("Not implemented");
+        pub fn drawText(
+            self: *Self,
+            font: *Font,
+            str: []const u8,
+            pos: Vec2,
+            color: Color,
+        ) void {
+            // Measure and clip
+            const size = Vec2{ .x = font.measure(str), .y = font.text_height };
+            const rect = Rect{ .pt = pos, .sz = size };
+            const clip = self.checkClip(rect);
+            switch (clip) {
+                .All => return,
+                .Part => self.command_list.pushClip(self.peekClipRect().*),
+                else => {},
+            }
+            // Add command
+            self.command_list.pushText(str, pos, color, font);
+            // Reset clipping if set
+            if (clip != .None) self.command_list.pushClip(unclipped_rect);
         }
 
         pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) void {
-            _ = self;
-            _ = id;
-            _ = rect;
-            _ = color;
-            @compileError("Not implemented");
+            // Measure and clip
+            const clip = self.checkClip(rect);
+            switch (clip) {
+                .All => return,
+                .Part => self.command_list.pushClip(self.peekClipRect().*),
+                else => {},
+            }
+            // Add command
+            self.command_list.pushIcon(id, rect, color);
+            // Reset clipping if set
+            if (clip != .None) self.command_list.pushClip(unclipped_rect);
         }
 
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {

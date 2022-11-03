@@ -139,43 +139,108 @@ test "Pool" {
 pub fn CommandList(comptime N: usize) type {
     return struct {
         buffer: [N]u8 align(alignment) = undefined,
-        pos: usize = 0,
+        tail: usize = 0,
 
-        const Self = @This();
         const alignment = @alignOf(mu.Command);
+        const Self = @This();
 
-        pub fn clear(self: *Self) void {
-            self.pos = 0;
+        const Iterator = struct {
+            list: *Self,
+            pos: usize = 0,
+
+            pub fn next(self: *Iterator) ?*const mu.Command {
+                while (self.pos != self.list.tail) {
+                    const cmd = self.list.get(self.pos);
+
+                    if (cmd.base.type == .Jump) {
+                        self.pos = cmd.jump.dst;
+                    } else {
+                        self.pos += cmd.base.size;
+                        return cmd;
+                    }
+                }
+
+                return null;
+            }
+        };
+
+        pub inline fn clear(self: *Self) void {
+            self.tail = 0;
         }
 
-        pub fn push(self: *Self, id: mu.CommandId, size: usize) *mu.Command {
+        pub inline fn get(self: *Self, pos: usize) *mu.Command {
+            return @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[pos]));
+        }
+
+        pub inline fn iter(self: *Self) Iterator {
+            return Iterator{ .list = self };
+        }
+
+        pub fn pushJump(self: *Self) usize {
+            const pos = self.pushSize(.Jump, @sizeOf(mu.JumpCommand));
+            self.get(pos).jump.dst = 0;
+            return pos;
+        }
+
+        pub fn pushClip(self: *Self, rect: mu.Rect) void {
+            const pos = self.pushSize(.Clip, @sizeOf(mu.ClipCommand));
+            var cmd = self.get(pos);
+            cmd.clip.rect = rect;
+        }
+
+        pub fn pushRect(self: *Self, rect: mu.Rect, color: mu.Color) void {
+            const pos = self.pushSize(.Rect, @sizeOf(mu.RectCommand));
+            var cmd = self.get(pos);
+            cmd.rect.rect = rect;
+            cmd.rect.color = color;
+        }
+
+        pub fn pushIcon(self: *Self, id: mu.Icon, rect: mu.Rect, color: mu.Color) void {
+            const pos = self.pushSize(.Icon, @sizeOf(mu.IconCommand));
+            var cmd = self.get(pos);
+            cmd.icon.id = id;
+            cmd.icon.rect = rect;
+            cmd.icon.color = color;
+        }
+
+        pub fn pushText(
+            self: *Self,
+            str: []const u8,
+            pos: mu.Vec2,
+            color: mu.Color,
+            font: *mu.Font,
+        ) void {
+            const offset = self.pushSize(.Text, @sizeOf(mu.TextCommand) + str.len);
+
+            var cmd = self.get(offset);
+            cmd.text.pos = pos;
+            cmd.text.font = font;
+            cmd.text.color = color;
+
+            var buf = cmd.text.write();
+            assert(buf.len == str.len);
+            std.mem.copy(u8, buf, str);
+        }
+
+        pub fn pushSize(self: *Self, cmd_type: mu.CommandType, size: usize) usize {
             assert(size < self.buffer.len);
-            assert(self.pos < self.buffer.len - size);
+            assert(self.tail < self.buffer.len - size);
 
-            const next_pos = std.mem.alignForward(self.pos + size, alignment);
+            const curr_pos = self.tail;
+            self.tail = std.mem.alignForward(curr_pos + size, alignment);
 
-            var cmd = @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[self.pos]));
-            cmd.base.type = id;
-            cmd.base.size = next_pos - self.pos;
+            var cmd = self.get(curr_pos);
+            cmd.base.type = cmd_type;
+            cmd.base.size = self.tail - curr_pos;
 
-            self.pos = next_pos;
-
-            return cmd;
-        }
-
-        pub fn head(self: *Self) *mu.Command {
-            return @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[0]));
-        }
-
-        pub fn tail(self: *Self) *mu.Command {
-            return @ptrCast(*mu.Command, @alignCast(alignment, &self.buffer[self.pos]));
+            return curr_pos;
         }
     };
 }
 
 test "CommandList" {
     var cmds = CommandList(4096){};
-    _ = cmds.push(.Rect, @sizeOf(mu.RectCommand));
+    _ = cmds.pushSizeSize(.Rect, @sizeOf(mu.RectCommand));
 }
 
 //============//
