@@ -68,6 +68,16 @@ var bg = [_]f32{ 90, 95, 100 };
 var checks = [3]bool{ true, false, true };
 
 pub fn main() !void {
+    // init microui
+    const ui_alloc = std.heap.page_allocator;
+    var ui_font = Font{
+        .ptr = null,
+        .text_height = r_get_text_height(),
+        .text_width = textWidth,
+    };
+    var ui = try ui_alloc.create(Context);
+    var input = ui.init(&ui_font, null);
+
     // init SDL and renderer
     _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
 
@@ -85,18 +95,6 @@ pub fn main() !void {
     _ = c.SDL_GL_CreateContext(window);
 
     r_init(width, height);
-
-    // init microui
-
-    const f = Font{
-        .ptr = null,
-        .text_height = r_get_text_height(),
-        .text_width = textWidth,
-    };
-
-    const a = std.heap.page_allocator;
-    var ctx = try a.create(Context);
-    var input = ctx.init(&f, null);
 
     // main loop
     while (true) {
@@ -136,24 +134,24 @@ pub fn main() !void {
 
         // process frame
         {
-            try ctx.beginFrame(input);
-            defer ctx.endFrame();
+            try ui.beginFrame(input);
+            defer ui.endFrame();
 
-            try testWindow(ctx);
-            logWindow(ctx);
-            styleWindow(ctx);
+            try testWindow(ui);
+            logWindow(ui);
+            styleWindow(ui);
         }
 
         // TODO (Matteo): TEST RENDERING!!!
         // render
-        // r_clear(mu.Color{
-        //     .r = @floatToInt(u8, bg[0]),
-        //     .g = @floatToInt(u8, bg[1]),
-        //     .b = @floatToInt(u8, bg[2]),
-        //     .a = 255,
-        // });
+        r_clear(mu.Color{
+            .r = @floatToInt(u8, bg[0]),
+            .g = @floatToInt(u8, bg[1]),
+            .b = @floatToInt(u8, bg[2]),
+            .a = 255,
+        });
 
-        var iter = ctx.command_list.iter();
+        var iter = ui.command_list.iter();
         while (iter.next()) |cmd| {
             switch (cmd.type) {
                 .Text => {}, // r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),

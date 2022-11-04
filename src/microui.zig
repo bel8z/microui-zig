@@ -138,9 +138,9 @@ pub const Rect = extern struct {
     }
 
     pub fn overlaps(rect: Rect, p: Vec2) bool {
-        const max = rect.pt + rect.sz;
+        const max = rect.pt.add(rect.sz);
         return p.x >= rect.pt.x and p.x <= max.x and
-            p.y >= rect.min.y and p.y <= max.y;
+            p.y >= rect.pt.y and p.y <= max.y;
     }
 };
 
@@ -165,11 +165,12 @@ pub const Result = packed struct {
 pub const OptionFlags = packed struct {
     align_center: bool = false,
     align_right: bool = false,
-    no_interact: bool = false,
-    no_frame: bool = false,
-    no_resize: bool = false,
-    no_scroll: bool = false,
-    no_title: bool = false,
+    interact: bool = true,
+    frame: bool = true,
+    resize: bool = true,
+    scroll: bool = true,
+    close_button: bool = true,
+    title: bool = true,
     hold_focus: bool = false,
     auto_size: bool = false,
     popup: bool = false,
@@ -195,6 +196,13 @@ pub const Keys = packed struct {
     enter: bool = false,
 
     pub usingnamespace util.BitSet(Keys, u5);
+};
+
+pub const ControlState = packed struct {
+    hovered: bool = false,
+    focused: bool = false,
+
+    pub usingnamespace util.BitSet(ControlState, u2);
 };
 
 // TODO (Matteo): Rethink command implementation.
@@ -249,20 +257,17 @@ pub const Container = struct {
 };
 
 pub const Style = struct {
-    font: *const Font,
-    size: Vec2,
-    padding: i32,
-    spacing: i32,
-    indent: i32,
-    title_height: i32,
-    scrollbar_size: i32,
-    thumb_size: i32,
-    colors: [util.memberCount(ColorId)]Color,
+    font: *Font,
+    size: Vec2 = .{ .x = 68, .y = 10 },
+    padding: i32 = 5,
+    spacing: i32 = 4,
+    indent: i32 = 24,
+    title_height: i32 = 24,
+    scrollbar_size: i32 = 12,
+    thumb_size: i32 = 8,
+    // TODO (Matteo): populate
+    colors: [util.memberCount(ColorId)]Color = undefined,
 };
-
-// NOTE (Matteo): Using 'anyopaque' because the Context type is dependent on
-// the comptime configuration - ugly?
-pub const DrawFrameFn = *const fn (self: *anyopaque, rect: Rect, color: ColorId) void;
 
 pub fn Context(comptime config: Config) type {
     return struct {
@@ -271,6 +276,8 @@ pub fn Context(comptime config: Config) type {
         // NOTE (Matteo): Declare here because are configurable
 
         pub const Real = config.real;
+
+        pub const DrawFrameFn = *const fn (self: *Self, rect: Rect, color: ColorId) void;
 
         pub const Input = struct {
             mouse_pos: Vec2 = .{},
@@ -349,23 +356,23 @@ pub fn Context(comptime config: Config) type {
 
         // callbacks
         // TODO (Matteo): Improve custom drawing of window frames
-        draw_frame: DrawFrameFn,
+        draw_frame: DrawFrameFn = &drawDefaultFrame,
 
         // core state
         _style: Style,
-        style: *Style,
-        hover: Id,
-        focus: Id,
-        last_id: Id,
-        last_rect: Rect,
-        last_zindex: i32,
-        updated_focus: bool,
-        frame: u32,
-        hover_root: ?*Container,
-        next_hover_root: ?*Container,
-        scroll_target: ?*Container,
-        number_edit_buf: [config.max_fmt]u8,
-        number_edit: Id,
+        style: *Style = undefined,
+        hover: Id = 0,
+        focus: Id = 0,
+        last_id: Id = 0,
+        last_rect: Rect = .{},
+        last_zindex: i32 = 0,
+        updated_focus: bool = false,
+        frame: u32 = 0,
+        hover_root: ?*Container = null,
+        next_hover_root: ?*Container = null,
+        scroll_target: ?*Container = null,
+        number_edit_buf: [config.max_fmt]u8 = undefined,
+        number_edit: Id = 0,
 
         // stacks
         command_list: util.CommandList(config.command_list_size) = .{},
@@ -376,45 +383,45 @@ pub fn Context(comptime config: Config) type {
         layout_stack: util.Stack(Layout, config.layout_stack_size) = .{},
 
         // retained state pools
-        containers: [config.container_pool_size]Container,
+        containers: [config.container_pool_size]Container = undefined,
         container_pool: util.Pool(config.container_pool_size) = .{},
         treenode_pool: util.Pool(config.treenode_pool_size) = .{},
 
         // input state
-        last_input: Input,
+        last_input: Input = .{},
         mouse_delta: Vec2 = .{},
 
-        // TODO (Matteo): Review - used to intercept missing calls to the init functions
+        // TODO (Matteo): Review - used to intercept missing calls to 'init'
         init_code: u16,
 
         //=== Initialization ===//
 
-        pub fn init(self: *Self, font: *const Font, draw_frame: ?DrawFrameFn) Input {
-            self.init_code = 0x1DEA;
-            self._style.font = font;
+        pub fn init(self: *Self, font: *Font, draw_frame: ?DrawFrameFn) Input {
+            // TODO (Matteo): Review
+            // This init function is basically only required for making sure
+            // that the 'style' pointer points to the internal '_style' member
+            self.* = Self{
+                ._style = Style{ .font = font },
+                .init_code = 0x1DEA,
+            };
+
             self.style = &self._style;
-            self.draw_frame = if (draw_frame) |ptr|
-                ptr
-            else
-                @ptrCast(DrawFrameFn, &drawDefaultFrame);
+
+            if (draw_frame) |ptr| self.draw_frame = ptr;
 
             return .{};
-        }
-
-        pub fn allocate(alloc: std.mem.Allocator, font: *const Font) !*Self {
-            var self = try alloc.create(Self);
-            self.init(font);
-            return self;
-        }
-
-        pub fn release(self: *Self, alloc: std.mem.Allocator) void {
-            alloc.destroy(self);
         }
 
         //=== Frame management ===//
 
         pub fn beginFrame(self: *Self, input: Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
+
+            // Check stacks
+            assert(self.container_stack.idx == 0);
+            assert(self.clip_stack.idx == 0);
+            assert(self.id_stack.idx == 0);
+            assert(self.layout_stack.idx == 0);
 
             self.command_list.clear();
             self.root_list.clear();
@@ -561,7 +568,7 @@ pub fn Context(comptime config: Config) type {
 
         fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
             cnt.body = body;
-            if (!opt.no_scroll) self.scrollbars(cnt, &cnt.body);
+            if (opt.scroll) self.scrollbars(cnt, &cnt.body);
             self.pushLayout(body.expand(-self.style.padding), cnt.scroll);
         }
 
@@ -757,6 +764,55 @@ pub fn Context(comptime config: Config) type {
 
         //=== Controls ===//
 
+        // TODO (Matteo): Maybe rename
+        pub fn updateControl(
+            self: *Self,
+            id: Id,
+            rect: Rect,
+            opts: OptionFlags,
+        ) ControlState {
+            const mouse_over = self.mouseOver(rect);
+            const mouse_down = self.last_input.mouse_down.any();
+            const mouse_pressed = self.last_input.mouse_pressed.any();
+
+            // TODO (Matteo): Tidy up the logic here
+
+            var state = ControlState{
+                .focused = (self.focus == id),
+                .hovered = (self.hover == id),
+            };
+
+            if (state.focused) self.updated_focus = true;
+
+            if (opts.interact) {
+                if (mouse_over and !mouse_down) {
+                    self.hover = id;
+                    state.hovered = true;
+                }
+
+                if (state.focused) {
+                    if ((mouse_pressed and !mouse_over) or
+                        (!mouse_down and !opts.hold_focus))
+                    {
+                        self.setFocus(0);
+                        state.focused = false;
+                    }
+                }
+
+                if (state.hovered) {
+                    if (mouse_pressed) {
+                        self.setFocus(id);
+                        state.focused = true;
+                    } else if (!mouse_over) {
+                        self.hover = 0;
+                        state.hovered = false;
+                    }
+                }
+            }
+
+            return state;
+        }
+
         pub fn mouseOver(self: *Self, rect: Rect) bool {
             const mouse = self.last_input.mouse_pos;
             return rect.overlaps(mouse) and
@@ -772,29 +828,17 @@ pub fn Context(comptime config: Config) type {
                 if (self.container_stack.items[i] == self.hover_root) return true;
                 // Only root containers have their `head` field set; stop searching
                 // if we've reached the current root container
-                if (self.container_stack.items[i].head != null) break;
+                if (self.container_stack.items[i].head != 0) break;
             }
 
             return false;
         }
 
-        pub fn updateControl(
-            self: *Self,
-            id: Id,
-            rect: Rect,
-            opts: OptionFlags,
-        ) void {
-            _ = self;
-            _ = id;
-            _ = rect;
-            _ = opts;
-            @compileError("Not implemented");
-        }
-
         pub fn text(self: *Self, str: []const u8) void {
-            _ = self;
-            _ = str;
-            @compileError("Not implemented");
+            // TODO (Matteo): Proper shaping
+            const rect = self.layoutNext();
+            const color = self.getColor(.Text);
+            self.drawText(self.style.font, str, rect.pt, color);
         }
 
         pub fn label(self: *Self, str: []const u8) void {
@@ -807,15 +851,25 @@ pub fn Context(comptime config: Config) type {
 
         pub fn buttonEx(
             self: *Self,
-            id: []const u8,
+            id_str: []const u8,
             icon: Icon,
             opts: OptionFlags,
         ) Result {
-            _ = self;
-            _ = id;
-            _ = icon;
-            _ = opts;
-            @compileError("Not implemented");
+            const id = if (id_str.len > 0)
+                self.getId(id_str)
+            else
+                self.getId(std.mem.asBytes(&icon));
+
+            const rect = self.layoutNext();
+            const state = self.updateControl(id, rect, opts);
+
+            // Draw
+            self.drawButton(state, rect, opts);
+
+            // Handle click
+            return Result{
+                .submit = (state.focused and self.last_input.mouse_pressed.left),
+            };
         }
 
         pub fn checkbox(self: *Self, id: []const u8, state: *bool) Result {
@@ -907,15 +961,15 @@ pub fn Context(comptime config: Config) type {
             if (self.numberTextbox(value, base, id)) return Result{};
 
             // Handle normal mode
-            self.updateControl(id, base, opts);
+            const state = self.updateControl(id, base, opts);
 
             // Handle input
-            if (self.focus == id and self.mouse_down.left) {
+            if (state.focused and self.mouse_down.left) {
                 value.* += self.mouse_delta.x * step;
             }
 
             // Draw base
-            self.drawControlFrame(id, base, .Base, opts);
+            self.drawBase(state, base, opts);
 
             // Draw text
             var buf: [config.max_fmt + 1]u8 = undefined;
@@ -974,8 +1028,8 @@ pub fn Context(comptime config: Config) type {
             var r = self.layoutNext();
 
             // Handle click
-            self.updateControl(id, r, .{});
-            const clicked = (self.last_input.mouse_pressed.left and self.focus == id);
+            const state = self.updateControl(id, r, .{});
+            const clicked = (self.last_input.mouse_pressed.left and state.focused);
             const is_active = (was_active != clicked);
 
             // Update pool ref
@@ -991,15 +1045,15 @@ pub fn Context(comptime config: Config) type {
 
             // Draw
             if (is_treenode) {
-                if (self.hover == id) self.drawFrame(r, .ButtonHover);
+                if (state.hovered) self.drawFrame(r, .ButtonHover);
             } else {
-                self.drawControlFrame(id, r, .Button, .{});
+                self.drawButton(state, r, .{});
             }
 
             self.drawIcon(
                 if (expanded) .Expanded else .Collapsed,
                 Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
-                self.style.colors[@enumToInt(ColorId.Text)],
+                self.getColor(.Text),
             );
 
             r.pt.x += r.sz.y - self.style.padding;
@@ -1013,14 +1067,92 @@ pub fn Context(comptime config: Config) type {
         pub fn beginWindow(
             self: *Self,
             title: []const u8,
-            rect: Rect,
+            init_rect: Rect,
             opts: OptionFlags,
         ) Result {
-            _ = self;
-            _ = title;
-            _ = rect;
-            _ = opts;
-            @compileError("Not implemented");
+            const id = self.getId(title);
+            var cnt = self.getContainerById(id, opts) orelse return .{};
+            if (!cnt.open) return .{};
+
+            // Pushing explicitly because the function can return early
+            self.id_stack.push(id);
+
+            if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
+            self.beginRootContainer(cnt);
+
+            // Draw frame
+            if (opts.frame) self.drawFrame(cnt.rect, .WindowBg);
+
+            const title_h = self.style.title_height;
+            var body = cnt.rect;
+
+            // Do title bar
+            if (opts.title) {
+                const title_rect = Rect{
+                    .pt = cnt.rect.pt,
+                    .sz = Vec2{ .x = cnt.rect.sz.x, .y = title_h },
+                };
+
+                self.drawFrame(title_rect, .TitleBg);
+
+                // Title text
+                const title_state = self.updateControl(self.getId("!title"), title_rect, opts);
+                self.drawControlText(title, title_rect, .TitleText, opts);
+                if (title_state.focused and self.last_input.mouse_down.left) {
+                    cnt.rect.pt = cnt.rect.pt.add(self.mouse_delta);
+                }
+
+                // Close button
+                if (opts.close_button) {
+                    const rect = Rect.init(
+                        title_rect.pt.x + title_rect.sz.x - title_h,
+                        title_rect.pt.y,
+                        title_h,
+                        title_h,
+                    );
+                    const state = self.updateControl(self.getId("!close"), rect, opts);
+                    if (state.focused and self.last_input.mouse_pressed.left) {
+                        cnt.open = false;
+                    }
+                    self.drawIcon(.Close, rect, self.getColor(.TitleText));
+                }
+
+                // Remove title from body
+                body.pt.y += title_h;
+                body.sz.y -= title_h;
+            }
+
+            self.pushContainerBody(cnt, body, opts);
+
+            // Do resize handle
+            if (opts.resize) {
+                const rect = Rect.init(
+                    cnt.rect.pt.x + cnt.rect.sz.x - title_h,
+                    cnt.rect.pt.y + cnt.rect.sz.y - title_h,
+                    title_h,
+                    title_h,
+                );
+                const state = self.updateControl(self.getId("!resize"), rect, opts);
+                if (state.focused and self.last_input.mouse_down.left) {
+                    const next_size = cnt.rect.sz.sub(self.mouse_delta);
+                    cnt.rect.sz.x = std.math.max(96, next_size.x);
+                    cnt.rect.sz.y = std.math.max(64, next_size.y);
+                }
+            }
+
+            // Resize to content size
+            if (opts.auto_size) {
+                const layout = self.peekLayout().body;
+                cnt.rect.sz = cnt.content_size.add(cnt.rect.sz.sub(layout.sz));
+            }
+
+            // Close if this is a popup window and elsewhere was clicked
+            if (opts.popup and self.last_input.mouse_pressed.any() and self.hover_root != cnt) {
+                cnt.open = false;
+            }
+
+            self.pushClipRect(cnt.body);
+            return Result{ .active = true };
         }
 
         pub fn endWindow(self: *Self) void {
@@ -1043,9 +1175,9 @@ pub fn Context(comptime config: Config) type {
             return self.beginWindow(name, .{}, .{
                 .popup = true,
                 .auto_size = true,
-                .no_resize = true,
-                .no_scroll = true,
-                .no_title = true,
+                .resize = false,
+                .scroll = false,
+                .title = false,
                 .closed = true,
             });
         }
@@ -1058,9 +1190,9 @@ pub fn Context(comptime config: Config) type {
             self.pushId(name);
             var cnt = self.getContainerById(self.last_id, opts) orelse unreachable;
             cnt.rect = self.layoutNext();
-            if (!opts.no_frame) {
-                self.drawFrame(cnt.rect, .PanelBg);
-            }
+
+            if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
+
             self.container_stack.push(cnt);
             self.pushContainerBody(cnt, cnt.rect, opts);
             self.pushClipRect(cnt.body);
@@ -1073,22 +1205,42 @@ pub fn Context(comptime config: Config) type {
 
         //=== Drawing ===//
 
-        // TODO (Matteo): move the drawing functions on the command list directly?
-        // Can help a bit with code organization, since it is the only state touched.
-
-        pub fn drawControlFrame(
+        pub fn drawButton(
             self: *Self,
-            id: Id,
+            state: ControlState,
             rect: Rect,
-            color: ColorId,
             opts: OptionFlags,
         ) void {
-            _ = self;
-            _ = id;
-            _ = rect;
-            _ = color;
-            _ = opts;
-            @compileError("Not implemented");
+            if (opts.frame) {
+                self.drawFrame(
+                    rect,
+                    if (state.focused)
+                        .ButtonFocus
+                    else if (state.hovered)
+                        .ButtonHover
+                    else
+                        .Button,
+                );
+            }
+        }
+
+        pub fn drawBase(
+            self: *Self,
+            state: ControlState,
+            rect: Rect,
+            opts: OptionFlags,
+        ) void {
+            if (opts.frame) {
+                self.drawFrame(
+                    rect,
+                    if (state.focused)
+                        .BaseFocus
+                    else if (state.hovered)
+                        .BaseHover
+                    else
+                        .Base,
+                );
+            }
         }
 
         pub fn drawControlText(
@@ -1105,6 +1257,27 @@ pub fn Context(comptime config: Config) type {
             _ = opts;
             @compileError("Not implemented");
         }
+
+        inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+            // NOTE (Matteo): Helper to abbreviate the calls involving the function
+            // pointer - ugly?
+            self.draw_frame(self, rect, color_id);
+        }
+
+        fn drawDefaultFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+            const color = self.getColor(color_id);
+            self.drawRect(rect, color);
+
+            switch (color_id) {
+                .ScrollBase, .ScrollThumb, .TitleBg => return,
+                else => if (color.a != 0) {
+                    self.drawBox(rect.expand(1), color);
+                },
+            }
+        }
+
+        // TODO (Matteo): move the drawing functions on the command list directly?
+        // Can help a bit with code organization, since it is the only state touched.
 
         pub fn drawRect(self: *Self, rect: Rect, color: Color) void {
             const clipped = self.peekClipRect().intersect(rect);
@@ -1177,24 +1350,6 @@ pub fn Context(comptime config: Config) type {
             if (clip != .None) self.command_list.pushClip(unclipped_rect);
         }
 
-        inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
-            // NOTE (Matteo): Helper to abbreviate the calls involving the function
-            // pointer - ugly?
-            self.draw_frame(self, rect, color_id);
-        }
-
-        fn drawDefaultFrame(self: *Self, rect: Rect, color_id: ColorId) void {
-            const color = self.getColor(color_id);
-            self.drawRect(rect, color);
-
-            switch (color_id) {
-                .ScrollBase, .ScrollThumb, .TitleBg => return,
-                else => if (color.a != 0) {
-                    self.drawBox(rect.expand(1), color);
-                },
-            }
-        }
-
         //=== Internals ===//
 
         inline fn getColor(self: *const Self, id: ColorId) Color {
@@ -1214,7 +1369,7 @@ fn hash(data: []const u8, hash_in: Id) Id {
     var hash_out = hash_in;
 
     for (data) |byte| {
-        hash_out = (hash_out ^ byte) * 16777619;
+        hash_out = (hash_out ^ byte) *% 16777619;
     }
 
     return hash_out;

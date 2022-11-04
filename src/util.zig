@@ -240,7 +240,7 @@ pub fn CommandList(comptime N: usize) type {
 
 test "CommandList" {
     var cmds = CommandList(4096){};
-    _ = cmds.pushSizeSize(.Rect, @sizeOf(mu.RectCommand));
+    _ = cmds.pushSize(.Rect, @sizeOf(mu.RectCommand));
 }
 
 //============//

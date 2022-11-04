@@ -1,1 +1,1 @@
-zig build %* --prefix "./build/" --prefix-lib-dir "." --prefix-exe-dir "." --cache-dir "./build/cache" -Drelease-fast=true
+zig build %* --prefix "./build/" --prefix-lib-dir "." --prefix-exe-dir "." --cache-dir "./build/cache"
