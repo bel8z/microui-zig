@@ -177,26 +177,26 @@ pub fn CommandList(comptime N: usize) type {
         }
 
         pub fn pushJump(self: *Self) usize {
-            const pos = self.pushSize(.Jump, @sizeOf(mu.JumpCommand));
+            const pos = self.pushCmd(.Jump);
             self.get(pos).jump.dst = 0;
             return pos;
         }
 
         pub fn pushClip(self: *Self, rect: mu.Rect) void {
-            const pos = self.pushSize(.Clip, @sizeOf(mu.ClipCommand));
+            const pos = self.pushCmd(.Clip);
             var cmd = self.get(pos);
             cmd.clip.rect = rect;
         }
 
         pub fn pushRect(self: *Self, rect: mu.Rect, color: mu.Color) void {
-            const pos = self.pushSize(.Rect, @sizeOf(mu.RectCommand));
+            const pos = self.pushCmd(.Rect);
             var cmd = self.get(pos);
             cmd.rect.rect = rect;
             cmd.rect.color = color;
         }
 
         pub fn pushIcon(self: *Self, id: mu.Icon, rect: mu.Rect, color: mu.Color) void {
-            const pos = self.pushSize(.Icon, @sizeOf(mu.IconCommand));
+            const pos = self.pushCmd(.Icon);
             var cmd = self.get(pos);
             cmd.icon.id = id;
             cmd.icon.rect = rect;
@@ -220,6 +220,18 @@ pub fn CommandList(comptime N: usize) type {
             var buf = cmd.text.write();
             assert(buf.len == str.len);
             std.mem.copy(u8, buf, str);
+        }
+
+        pub fn pushCmd(self: *Self, comptime cmd_type: mu.CommandType) usize {
+            const cmd_struct = switch (cmd_type) {
+                .Jump => mu.JumpCommand,
+                .Clip => mu.ClipCommand,
+                .Rect => mu.RectCommand,
+                .Icon => mu.IconCommand,
+                else => @compileError("Not supported"),
+            };
+
+            return self.pushSize(cmd_type, @sizeOf(cmd_struct));
         }
 
         pub fn pushSize(self: *Self, cmd_type: mu.CommandType, size: usize) usize {
