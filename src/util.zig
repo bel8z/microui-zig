@@ -223,12 +223,15 @@ pub fn CommandList(comptime N: usize) type {
         }
 
         pub fn pushCmd(self: *Self, comptime cmd_type: mu.CommandType) usize {
+            const cmd_name = @tagName(cmd_type);
+
             const cmd_struct = switch (cmd_type) {
                 .Jump => mu.JumpCommand,
                 .Clip => mu.ClipCommand,
                 .Rect => mu.RectCommand,
                 .Icon => mu.IconCommand,
-                else => @compileError("Not supported"),
+                .Text => @compileError(cmd_name ++ " requires explicit size to push"),
+                else => @compileError(cmd_name ++ " command is not supported"),
             };
 
             return self.pushSize(cmd_type, @sizeOf(cmd_struct));
