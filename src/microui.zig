@@ -266,7 +266,22 @@ pub const Style = struct {
     scrollbar_size: i32 = 12,
     thumb_size: i32 = 8,
     // TODO (Matteo): populate
-    colors: [util.memberCount(ColorId)]Color = undefined,
+    colors: [util.memberCount(ColorId)]Color = [_]Color{
+        .{ .r = 230, .g = 230, .b = 230, .a = 255 }, // Text
+        .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // Border
+        .{ .r = 50, .g = 50, .b = 50, .a = 255 }, // WindowBg
+        .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // TitleBg
+        .{ .r = 240, .g = 0, .b = 240, .a = 255 }, // TitleText
+        .{ .r = 0, .g = 0, .b = 0, .a = 0 }, // PanelBg
+        .{ .r = 75, .g = 75, .b = 75, .a = 255 }, // Button
+        .{ .r = 95, .g = 95, .b = 95, .a = 255 }, // ButtonHover
+        .{ .r = 115, .g = 115, .b = 115, .a = 255 }, // ButtonFocus
+        .{ .r = 30, .g = 30, .b = 30, .a = 255 }, // Base
+        .{ .r = 35, .g = 35, .b = 35, .a = 255 }, // BaseHover
+        .{ .r = 40, .g = 40, .b = 40, .a = 255 }, // BaseFocus
+        .{ .r = 43, .g = 43, .b = 43, .a = 255 }, // ScrollBase
+        .{ .r = 30, .g = 30, .b = 30, .a = 255 }, // ScrollThumb
+    },
 };
 
 pub fn Context(comptime config: Config) type {
