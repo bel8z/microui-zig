@@ -134,11 +134,11 @@ pub fn main() !void {
 
         // process frame
         {
-            try ui.beginFrame(input);
+            try ui.beginFrame(&input);
             defer ui.endFrame();
 
             try testWindow(ui);
-            logWindow(ui);
+            _ = logWindow; // (ui);
             styleWindow(ui);
         }
 

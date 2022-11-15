@@ -210,15 +210,20 @@ pub fn CommandList(comptime N: usize) type {
             color: mu.Color,
             font: *mu.Font,
         ) void {
-            const offset = self.pushSize(.Text, @sizeOf(mu.TextCommand) + str.len);
+            const header_size = @sizeOf(mu.TextCommand);
+            const full_size = header_size + str.len;
+            const offset = self.pushSize(.Text, full_size);
 
             var cmd = self.get(offset);
             cmd.text.pos = pos;
             cmd.text.font = font;
             cmd.text.color = color;
+            cmd.text.len = str.len;
 
-            var buf = cmd.text.write();
+            var buf = self.buffer[offset + header_size .. offset + full_size];
+
             assert(buf.len == str.len);
+
             std.mem.copy(u8, buf, str);
         }
 

@@ -16,11 +16,11 @@ test "MicroUi" {
 
     const MicroUi = Context(.{});
 
-    const font: Font = undefined;
+    var font: Font = undefined;
     var ui: MicroUi = undefined;
-    const input = ui.init(&font, null);
+    var input = ui.init(&font, null);
 
-    try ui.beginFrame(input);
+    try ui.beginFrame(&input);
     defer ui.endFrame();
 }
 
@@ -87,62 +87,6 @@ pub const Icon = enum(u32) {
 };
 
 pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
-
-pub const Vec2 = extern struct {
-    x: i32 = 0,
-    y: i32 = 0,
-
-    pub inline fn add(l: Vec2, r: Vec2) Vec2 {
-        return Vec2{ .x = l.x + r.x, .y = l.y + r.y };
-    }
-
-    pub inline fn sub(l: Vec2, r: Vec2) Vec2 {
-        return Vec2{ .x = l.x - r.x, .y = l.y - r.y };
-    }
-
-    pub inline fn negate(v: Vec2) Vec2 {
-        return Vec2{ .x = -v.x, .y = -v.y };
-    }
-};
-
-pub const Rect = extern struct {
-    pt: Vec2 = .{},
-    sz: Vec2 = .{},
-
-    pub fn init(x: i32, y: i32, w: i32, h: i32) Rect {
-        return Rect{
-            .pt = Vec2{ .x = x, .y = y },
-            .sz = Vec2{ .x = w, .y = h },
-        };
-    }
-
-    pub fn expand(rect: Rect, n: i32) Rect {
-        return Rect{
-            .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
-            .sz = Vec2{ .x = rect.sz.x + 2 * n, .y = rect.sz.y + 2 * n },
-        };
-    }
-
-    pub fn intersect(ls: Rect, rs: Rect) Rect {
-        const min = Vec2{
-            .x = std.math.max(ls.pt.x, rs.pt.x),
-            .y = std.math.max(ls.pt.y, rs.pt.y),
-        };
-
-        const max = Vec2{
-            .x = std.math.min3(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x, min.x),
-            .y = std.math.min3(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y, min.y),
-        };
-
-        return Rect{ .pt = min, .sz = max.sub(min) };
-    }
-
-    pub fn overlaps(rect: Rect, p: Vec2) bool {
-        const max = rect.pt.add(rect.sz);
-        return p.x >= rect.pt.x and p.x <= max.x and
-            p.y >= rect.pt.y and p.y <= max.y;
-    }
-};
 
 pub const Font = struct {
     text_height: i32,
@@ -227,12 +171,6 @@ pub const TextCommand = extern struct {
         const ptr = @intToPtr([*]const u8, pos);
         return ptr[0..cmd.len];
     }
-
-    pub fn write(cmd: *TextCommand) []u8 {
-        const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
-        const ptr = @intToPtr([*]u8, pos);
-        return ptr[0..cmd.len];
-    }
 };
 
 pub const Command = extern union {
@@ -271,7 +209,7 @@ pub const Style = struct {
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // Border
         .{ .r = 50, .g = 50, .b = 50, .a = 255 }, // WindowBg
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // TitleBg
-        .{ .r = 240, .g = 0, .b = 240, .a = 255 }, // TitleText
+        .{ .r = 240, .g = 240, .b = 240, .a = 255 }, // TitleText
         .{ .r = 0, .g = 0, .b = 0, .a = 0 }, // PanelBg
         .{ .r = 75, .g = 75, .b = 75, .a = 255 }, // Button
         .{ .r = 95, .g = 95, .b = 95, .a = 255 }, // ButtonHover
@@ -303,6 +241,13 @@ pub fn Context(comptime config: Config) type {
             key_pressed: Keys = .{},
             text_buf: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
             text_len: usize = 0,
+
+            pub fn clear(self: *Input) void {
+                self.key_pressed = .{};
+                self.mouse_pressed = .{};
+                self.scroll_delta = .{};
+                self.text_len = 0;
+            }
 
             pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
                 self.mouse_pos = .{ .x = x, .y = y };
@@ -364,8 +309,6 @@ pub fn Context(comptime config: Config) type {
         };
 
         const Self = @This();
-
-        const unclipped_rect = Rect.init(0, 0, 0x1000000, 0x1000000);
 
         //=== Data ===//
 
@@ -429,7 +372,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Frame management ===//
 
-        pub fn beginFrame(self: *Self, input: Input) !void {
+        pub fn beginFrame(self: *Self, input: *Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             // Check stacks
@@ -446,7 +389,8 @@ pub fn Context(comptime config: Config) type {
             self.next_hover_root = null;
 
             self.mouse_delta = input.mouse_pos.sub(self.last_input.mouse_pos);
-            self.last_input = input;
+            self.last_input = input.*;
+            input.clear();
 
             self.frame +%= 1; // wrapping increment, overflow is somewhat expected
         }
@@ -478,10 +422,7 @@ pub fn Context(comptime config: Config) type {
             }
 
             // Reset input state
-            self.last_input.key_pressed = .{};
-            self.last_input.mouse_pressed = .{};
-            self.last_input.scroll_delta = .{};
-            self.last_input.text_len = 0;
+            self.last_input.clear();
 
             // Sort root containers by zindex
             const compare = struct {
@@ -620,7 +561,7 @@ pub fn Context(comptime config: Config) type {
             _ = self;
             _ = cnt;
             _ = body;
-            @compileError("Not implemented");
+            // @compileError("Not implemented");
         }
 
         //=== Layout management ===//
@@ -727,10 +668,14 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn pushLayout(self: *Self, body: Rect, scroll: Vec2) void {
+            const min = std.math.minInt(i32);
+            comptime assert(min < 0);
+
             self.layout_stack.push(Layout{
                 .body = Rect{ .pt = body.pt.sub(scroll), .sz = body.sz },
-                .max = Vec2{ .x = -0x1000000, .y = -0x1000000 },
+                .max = Vec2{ .x = min, .y = min },
             });
+
             self.layoutRow(.{0}, 0);
         }
 
@@ -891,7 +836,7 @@ pub fn Context(comptime config: Config) type {
             _ = self;
             _ = id;
             _ = state;
-            @compileError("Not implemented");
+            return Result{};
         }
 
         pub fn textbox(self: *Self, buf: []u8, opts: OptionFlags) Result {
@@ -910,7 +855,7 @@ pub fn Context(comptime config: Config) type {
             _ = id;
             _ = rect;
             _ = opts;
-            @compileError("Not implemented");
+            return Result{};
         }
 
         pub inline fn slider(
@@ -945,7 +890,7 @@ pub fn Context(comptime config: Config) type {
             _ = step;
             _ = fmt;
             _ = opts;
-            @compileError("Not implemented");
+            return Result{};
         }
 
         pub fn number(
@@ -1009,7 +954,7 @@ pub fn Context(comptime config: Config) type {
             _ = value;
             _ = r;
             _ = id;
-            @compileError("Not implemented");
+            return false;
         }
 
         pub fn header(self: *Self, id: []const u8, opts: OptionFlags) Result {
@@ -1086,8 +1031,8 @@ pub fn Context(comptime config: Config) type {
             opts: OptionFlags,
         ) Result {
             const id = self.getId(title);
-            var cnt = self.getContainerById(id, opts) orelse return .{};
-            if (!cnt.open) return .{};
+            var cnt = self.getContainerById(id, opts) orelse return Result{};
+            if (!cnt.open) return Result{};
 
             // Pushing explicitly because the function can return early
             self.id_stack.push(id);
@@ -1270,7 +1215,7 @@ pub fn Context(comptime config: Config) type {
             _ = rect;
             _ = color;
             _ = opts;
-            @compileError("Not implemented");
+            // @compileError("Not implemented");
         }
 
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
@@ -1372,6 +1317,88 @@ pub fn Context(comptime config: Config) type {
             return self.style.colors[@enumToInt(id)];
         }
     };
+}
+
+//========================//
+//  Geometric primitives  //
+//========================//
+
+pub const Vec2 = extern struct {
+    x: i32 = 0,
+    y: i32 = 0,
+
+    pub inline fn add(l: Vec2, r: Vec2) Vec2 {
+        return Vec2{ .x = l.x + r.x, .y = l.y + r.y };
+    }
+
+    pub inline fn sub(l: Vec2, r: Vec2) Vec2 {
+        return Vec2{ .x = l.x - r.x, .y = l.y - r.y };
+    }
+
+    pub inline fn negate(v: Vec2) Vec2 {
+        return Vec2{ .x = -v.x, .y = -v.y };
+    }
+
+    pub inline fn eq(l: Vec2, r: Vec2) bool {
+        return (l.x == r.x and l.y == r.y);
+    }
+};
+
+pub const Rect = extern struct {
+    pt: Vec2 = .{},
+    sz: Vec2 = .{},
+
+    pub fn init(x: i32, y: i32, w: i32, h: i32) Rect {
+        return Rect{
+            .pt = Vec2{ .x = x, .y = y },
+            .sz = Vec2{ .x = w, .y = h },
+        };
+    }
+
+    pub fn expand(rect: Rect, n: i32) Rect {
+        return Rect{
+            .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
+            .sz = Vec2{ .x = rect.sz.x + 2 * n, .y = rect.sz.y + 2 * n },
+        };
+    }
+
+    pub fn intersect(ls: Rect, rs: Rect) Rect {
+        const min = Vec2{
+            .x = std.math.max(ls.pt.x, rs.pt.x),
+            .y = std.math.max(ls.pt.y, rs.pt.y),
+        };
+
+        const max = Vec2{
+            .x = std.math.max(min.x, std.math.min(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x)),
+            .y = std.math.max(min.y, std.math.min(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y)),
+        };
+
+        return Rect{ .pt = min, .sz = max.sub(min) };
+    }
+
+    pub fn overlaps(rect: Rect, p: Vec2) bool {
+        const max = rect.pt.add(rect.sz);
+        return p.x >= rect.pt.x and p.x <= max.x and
+            p.y >= rect.pt.y and p.y <= max.y;
+    }
+};
+
+const unclipped_rect = Rect.init(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+
+test "Primitives" {
+    const expect = std.testing.expect;
+
+    var c: Rect = undefined;
+
+    const a = Rect.init(0, 0, 2, 3);
+    c = a.intersect(unclipped_rect);
+    try expect(a.pt.eq(c.pt));
+    try expect(a.sz.eq(c.sz));
+
+    const b = Rect.init(1, 1, 3, 3);
+    c = a.intersect(b);
+    try expect(c.pt.eq(c.pt));
+    try expect(c.sz.eq(.{ .x = 1, .y = 2 }));
 }
 
 //=====================//
