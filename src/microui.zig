@@ -1097,7 +1097,7 @@ pub fn Context(comptime config: Config) type {
                 );
                 const state = self.updateControl(self.getId("!resize"), rect, opts);
                 if (state.focused and self.last_input.mouse_down.left) {
-                    const next_size = cnt.rect.sz.sub(self.mouse_delta);
+                    const next_size = cnt.rect.sz.add(self.mouse_delta);
                     cnt.rect.sz.x = std.math.max(96, next_size.x);
                     cnt.rect.sz.y = std.math.max(64, next_size.y);
                 }
