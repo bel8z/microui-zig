@@ -154,7 +154,14 @@ pub fn main() !void {
         var iter = ui.command_list.iter();
         while (iter.next()) |cmd| {
             switch (cmd.type) {
-                .Text => {}, // r_draw_text(&cmd.text.str, cmd.text.pos, cmd.text.color),
+                .Text => {
+                    var buf: [1024]u8 = undefined;
+                    const str = cmd.text.read();
+                    std.debug.assert(str.len < buf.len);
+                    std.mem.copy(u8, buf[0..], str);
+                    buf[str.len] = 0;
+                    r_draw_text(&buf, cmd.text.pos, cmd.text.color);
+                },
                 .Rect => r_draw_rect(cmd.rect.rect, cmd.rect.color),
                 .Icon => r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
                 .Clip => r_set_clip_rect(cmd.clip.rect),

@@ -825,6 +825,8 @@ pub fn Context(comptime config: Config) type {
 
             // Draw
             self.drawButton(state, rect, opts);
+            if (icon != .None) self.drawIcon(icon, rect, self.getColor(.Text));
+            if (id_str.len > 0) self.drawControlText(id_str, rect, .Text, opts);
 
             // Handle click
             return Result{
@@ -1016,8 +1018,9 @@ pub fn Context(comptime config: Config) type {
                 self.getColor(.Text),
             );
 
-            r.pt.x += r.sz.y - self.style.padding;
-            r.pt.y -= r.sz.y - self.style.padding;
+            const delta_x = r.sz.y - self.style.padding;
+            r.pt.x += delta_x;
+            r.sz.x -= delta_x;
 
             self.drawControlText(id_str, r, .Text, .{});
 
@@ -1210,12 +1213,23 @@ pub fn Context(comptime config: Config) type {
             color: ColorId,
             opts: OptionFlags,
         ) void {
-            _ = self;
-            _ = str;
-            _ = rect;
-            _ = color;
-            _ = opts;
-            // @compileError("Not implemented");
+            const font = self.style.font;
+            const tw = font.measure(str);
+            var pos = Vec2{
+                .y = rect.pt.y + @divTrunc(rect.sz.y - font.text_height, 2),
+            };
+
+            if (opts.align_center) {
+                pos.x = rect.pt.x + @divTrunc(rect.sz.x - tw, 2);
+            } else if (opts.align_right) {
+                pos.x = rect.pt.x + rect.sz.x - tw - self.style.padding;
+            } else {
+                pos.x = rect.pt.x + self.style.padding;
+            }
+
+            self.pushClipRect(rect);
+            self.drawText(font, str, pos, self.getColor(color));
+            self.popClipRect();
         }
 
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
