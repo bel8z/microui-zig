@@ -7,6 +7,7 @@
 //
 
 const std = @import("std");
+const command = @import("command.zig");
 const util = @import("util.zig");
 
 const assert = std.debug.assert;
@@ -25,6 +26,10 @@ test "MicroUi" {
 }
 
 pub const Id = u32;
+
+pub const Command = command.Command;
+pub const CommandType = command.CommandType;
+pub const CommandList = command.CommandList;
 
 /// Compile-time configuration parameters
 pub const Config = struct {
@@ -48,16 +53,6 @@ pub const Clip = enum(u2) {
     None,
     Part,
     All,
-};
-
-pub const CommandType = enum(u32) {
-    None,
-    Jump,
-    Clip,
-    Rect,
-    Text,
-    Icon,
-    _,
 };
 
 pub const ColorId = enum(u4) {
@@ -147,40 +142,6 @@ pub const ControlState = packed struct {
     focused: bool = false,
 
     pub usingnamespace util.BitSet(ControlState, u2);
-};
-
-// TODO (Matteo): Rethink command implementation.
-// The current solution works pretty well in C but seems a bit foreign in Zig;
-// furthermore, I'd like to provide easy extension with user-defined commands.
-
-pub const BaseCommand = extern struct { type: CommandType, size: usize };
-pub const JumpCommand = extern struct { base: BaseCommand, dst: usize };
-pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
-pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
-pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
-
-pub const TextCommand = extern struct {
-    base: BaseCommand,
-    font: *const Font,
-    pos: Vec2,
-    color: Color,
-    len: usize,
-
-    pub fn read(cmd: *const TextCommand) []const u8 {
-        const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
-        const ptr = @intToPtr([*]const u8, pos);
-        return ptr[0..cmd.len];
-    }
-};
-
-pub const Command = extern union {
-    type: CommandType,
-    base: BaseCommand,
-    jump: JumpCommand,
-    clip: ClipCommand,
-    rect: RectCommand,
-    text: TextCommand,
-    icon: IconCommand,
 };
 
 pub const Container = struct {
@@ -333,7 +294,7 @@ pub fn Context(comptime config: Config) type {
         number_edit: Id = 0,
 
         // stacks
-        command_list: util.CommandList(config.command_list_size) = .{},
+        command_list: CommandList(config.command_list_size) = .{},
         root_list: util.Stack(*Container, config.rootlist_size) = .{},
         container_stack: util.Stack(*Container, config.container_stack_size) = .{},
         clip_stack: util.Stack(Rect, config.clip_stack_size) = .{},
@@ -444,7 +405,7 @@ pub fn Context(comptime config: Config) type {
                 else
                     self.command_list.get(self.root_list.items[i - 1].tail);
 
-                cmd.jump.dst = cnt.head + @sizeOf(JumpCommand);
+                cmd.jump.dst = cnt.head + @sizeOf(command.JumpCommand);
 
                 // Make the last container's tail jump to the end of command list
                 if (i == n - 1) {
