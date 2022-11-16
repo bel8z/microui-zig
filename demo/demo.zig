@@ -138,7 +138,7 @@ pub fn main() !void {
             defer ui.endFrame();
 
             try testWindow(ui);
-            _ = logWindow; // (ui);
+            _ = logWindow(ui);
             styleWindow(ui);
         }
 
@@ -337,9 +337,7 @@ fn logWindow(ctx: *Context) void {
         var panel = ctx.getCurrentContainer();
         ctx.layoutRow(.{-1}, -1);
 
-        const text = logbuf.getWritten()[0.. :0];
-
-        ctx.text(text);
+        ctx.text(logbuf.getWritten());
         ctx.endPanel();
         if (logbuf_updated) {
             panel.*.scroll.y = panel.*.content_size.y;
@@ -399,7 +397,7 @@ fn sliderU8(ctx: *Context, value: *u8, low: u8, high: u8) mu.Result {
         @intToFloat(f32, low),
         @intToFloat(f32, high),
         0,
-        "%.0f",
+        "{d:.0}",
         .{ .align_center = true },
     );
     value.* = @floatToInt(u8, tmp);

@@ -38,8 +38,8 @@ pub const Config = struct {
     treenode_pool_size: usize = 48,
     max_widths: usize = 16,
     real: type = f32,
-    real_fmt: []const u8 = "%.3g",
-    slider_fmt: []const u8 = "%.2f",
+    real_fmt: []const u8 = "{:.3}",
+    slider_fmt: []const u8 = "{d:.2}",
     max_fmt: usize = 127,
     input_buf_size: usize = 32,
 };
@@ -93,8 +93,8 @@ pub const Font = struct {
     text_width: *const fn (ptr: ?*anyopaque, str: []const u8) i32,
     ptr: ?*anyopaque = null,
 
-    pub fn measure(self: *const Font, text: []const u8) i32 {
-        return self.text_width(self.ptr, text);
+    pub fn measure(self: *const Font, text: []const u8) Vec2 {
+        return .{ .x = self.text_width(self.ptr, text), .y = self.text_height };
     }
 };
 
@@ -346,7 +346,7 @@ pub fn Context(comptime config: Config) type {
         treenode_pool: util.Pool(config.treenode_pool_size) = .{},
 
         // input state
-        last_input: Input = .{},
+        input: Input = .{},
         mouse_delta: Vec2 = .{},
 
         // TODO (Matteo): Review - used to intercept missing calls to 'init'
@@ -388,8 +388,8 @@ pub fn Context(comptime config: Config) type {
             self.hover_root = self.next_hover_root;
             self.next_hover_root = null;
 
-            self.mouse_delta = input.mouse_pos.sub(self.last_input.mouse_pos);
-            self.last_input = input.*;
+            self.mouse_delta = input.mouse_pos.sub(self.input.mouse_pos);
+            self.input = input.*;
             input.clear();
 
             self.frame +%= 1; // wrapping increment, overflow is somewhat expected
@@ -404,7 +404,7 @@ pub fn Context(comptime config: Config) type {
 
             // Handle scroll target
             if (self.scroll_target) |tgt| {
-                tgt.scroll = tgt.scroll.add(self.last_input.scroll_delta);
+                tgt.scroll = tgt.scroll.add(self.input.scroll_delta);
             }
 
             // unset focus if focus id was not touched this frame
@@ -413,7 +413,7 @@ pub fn Context(comptime config: Config) type {
 
             // Bring hover root to front if mouse was pressed
             if (self.next_hover_root) |hover_root| {
-                if (self.last_input.mouse_pressed.any() and
+                if (self.input.mouse_pressed.any() and
                     hover_root.zindex < self.last_zindex and
                     hover_root.zindex >= 0)
                 {
@@ -422,7 +422,7 @@ pub fn Context(comptime config: Config) type {
             }
 
             // Reset input state
-            self.last_input.clear();
+            self.input.clear();
 
             // Sort root containers by zindex
             const compare = struct {
@@ -535,7 +535,7 @@ pub fn Context(comptime config: Config) type {
             cnt.head = self.command_list.pushJump();
             // Set as hover root if the mouse is overlapping this container and it has a
             // higher zindex than the current hover root
-            if (cnt.rect.overlaps(self.last_input.mouse_pos) and
+            if (cnt.rect.overlaps(self.input.mouse_pos) and
                 (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
             {
                 self.next_hover_root = cnt;
@@ -732,8 +732,8 @@ pub fn Context(comptime config: Config) type {
             opts: OptionFlags,
         ) ControlState {
             const mouse_over = self.mouseOver(rect);
-            const mouse_down = self.last_input.mouse_down.any();
-            const mouse_pressed = self.last_input.mouse_pressed.any();
+            const mouse_down = self.input.mouse_down.any();
+            const mouse_pressed = self.input.mouse_pressed.any();
 
             // TODO (Matteo): Tidy up the logic here
 
@@ -774,7 +774,7 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn mouseOver(self: *Self, rect: Rect) bool {
-            const mouse = self.last_input.mouse_pos;
+            const mouse = self.input.mouse_pos;
             return rect.overlaps(mouse) and
                 self.peekClipRect().overlaps(mouse) and
                 self.inHoverRoot();
@@ -830,7 +830,7 @@ pub fn Context(comptime config: Config) type {
 
             // Handle click
             return Result{
-                .submit = (state.focused and self.last_input.mouse_pressed.left),
+                .submit = (state.focused and self.input.mouse_pressed.left),
             };
         }
 
@@ -882,17 +882,59 @@ pub fn Context(comptime config: Config) type {
             low: Real,
             high: Real,
             step: Real,
-            fmt: []const u8,
+            comptime fmt: []const u8,
             opts: OptionFlags,
         ) Result {
-            _ = self;
-            _ = value;
-            _ = low;
-            _ = high;
-            _ = step;
-            _ = fmt;
-            _ = opts;
-            return Result{};
+            const id = self.getId(std.mem.asBytes(&value));
+            const base = self.layoutNext();
+
+            // Handle text input mode
+            if (self.numberTextbox(value, base, id)) return Result{};
+
+            // Handle normal mode
+            const state = self.updateControl(id, base, opts);
+            const last = value.*;
+            const range = high - low;
+            var v = last;
+
+            // Handle input
+            const clicked = (self.input.mouse_down.left or
+                self.input.mouse_pressed.left);
+
+            if (state.focused and clicked) {
+                const delta = @intToFloat(Real, self.input.mouse_pos.x - base.pt.x);
+                v = low + delta * range / @intToFloat(Real, base.sz.x);
+                // TODO (Matteo): Why was division-then-multiplication by step needed
+                // in the first place?
+                if (step != 0) v = step * ((v + 0.5 * step) / step);
+            }
+
+            // Clamp and store value
+            v = std.math.clamp(v, low, high);
+            value.* = v;
+
+            // Draw
+            self.drawBase(state, base, opts);
+            // Thumb
+            const perc = (v - low) / range;
+            const width = self.style.thumb_size;
+            const thumb = Rect.init(
+                base.pt.x + @floatToInt(i32, perc * @intToFloat(Real, base.sz.x - width)),
+                base.pt.y,
+                width,
+                base.sz.y,
+            );
+            self.drawButton(state, thumb, opts);
+            // Text
+            var buf: [config.max_fmt]u8 = undefined;
+            self.drawControlText(
+                std.fmt.bufPrint(&buf, fmt, .{v}) catch unreachable,
+                base,
+                .Text,
+                opts,
+            );
+
+            return Result{ .change = (last != v) };
         }
 
         pub fn number(
@@ -934,9 +976,9 @@ pub fn Context(comptime config: Config) type {
             self.drawBase(state, base, opts);
 
             // Draw text
-            var buf: [config.max_fmt + 1]u8 = undefined;
+            var buf: [config.max_fmt]u8 = undefined;
             self.drawControlText(
-                std.fmt.bufPrint(buf, fmt, .{value.*}) catch unreachable,
+                std.fmt.bufPrint(&buf, fmt, .{value.*}) catch unreachable,
                 base,
                 .Text,
                 opts,
@@ -991,7 +1033,7 @@ pub fn Context(comptime config: Config) type {
 
             // Handle click
             const state = self.updateControl(id, r, .{});
-            const clicked = (self.last_input.mouse_pressed.left and state.focused);
+            const clicked = (self.input.mouse_pressed.left and state.focused);
             const is_active = (was_active != clicked);
 
             // Update pool ref
@@ -1061,7 +1103,7 @@ pub fn Context(comptime config: Config) type {
                 // Title text
                 const title_state = self.updateControl(self.getId("!title"), title_rect, opts);
                 self.drawControlText(title, title_rect, .TitleText, opts);
-                if (title_state.focused and self.last_input.mouse_down.left) {
+                if (title_state.focused and self.input.mouse_down.left) {
                     cnt.rect.pt = cnt.rect.pt.add(self.mouse_delta);
                 }
 
@@ -1074,7 +1116,7 @@ pub fn Context(comptime config: Config) type {
                         title_h,
                     );
                     const state = self.updateControl(self.getId("!close"), rect, opts);
-                    if (state.focused and self.last_input.mouse_pressed.left) {
+                    if (state.focused and self.input.mouse_pressed.left) {
                         cnt.open = false;
                     }
                     self.drawIcon(.Close, rect, self.getColor(.TitleText));
@@ -1096,7 +1138,7 @@ pub fn Context(comptime config: Config) type {
                     title_h,
                 );
                 const state = self.updateControl(self.getId("!resize"), rect, opts);
-                if (state.focused and self.last_input.mouse_down.left) {
+                if (state.focused and self.input.mouse_down.left) {
                     const next_size = cnt.rect.sz.add(self.mouse_delta);
                     cnt.rect.sz.x = std.math.max(96, next_size.x);
                     cnt.rect.sz.y = std.math.max(64, next_size.y);
@@ -1110,7 +1152,7 @@ pub fn Context(comptime config: Config) type {
             }
 
             // Close if this is a popup window and elsewhere was clicked
-            if (opts.popup and self.last_input.mouse_pressed.any() and self.hover_root != cnt) {
+            if (opts.popup and self.input.mouse_pressed.any() and self.hover_root != cnt) {
                 cnt.open = false;
             }
 
@@ -1129,7 +1171,7 @@ pub fn Context(comptime config: Config) type {
             self.next_hover_root = cnt;
             self.hover_root = self.next_hover_root;
             // position at mouse cursor, open and bring-to-front
-            cnt.rect = Rect{ .pt = self.last_input.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
+            cnt.rect = Rect{ .pt = self.input.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
             cnt.open = true;
             self.bringToFront(cnt);
         }
@@ -1214,15 +1256,15 @@ pub fn Context(comptime config: Config) type {
             opts: OptionFlags,
         ) void {
             const font = self.style.font;
-            const tw = font.measure(str);
+            const size = font.measure(str);
             var pos = Vec2{
-                .y = rect.pt.y + @divTrunc(rect.sz.y - font.text_height, 2),
+                .y = rect.pt.y + @divTrunc(rect.sz.y - size.y, 2),
             };
 
             if (opts.align_center) {
-                pos.x = rect.pt.x + @divTrunc(rect.sz.x - tw, 2);
+                pos.x = rect.pt.x + @divTrunc(rect.sz.x - size.x, 2);
             } else if (opts.align_right) {
-                pos.x = rect.pt.x + rect.sz.x - tw - self.style.padding;
+                pos.x = rect.pt.x + rect.sz.x - size.x - self.style.padding;
             } else {
                 pos.x = rect.pt.x + self.style.padding;
             }
@@ -1243,9 +1285,12 @@ pub fn Context(comptime config: Config) type {
             self.drawRect(rect, color);
 
             switch (color_id) {
-                .ScrollBase, .ScrollThumb, .TitleBg => return,
-                else => if (color.a != 0) {
-                    self.drawBox(rect.expand(1), color);
+                .ScrollBase, .ScrollThumb, .TitleBg => {},
+                else => {
+                    const border = self.getColor(.Border);
+                    if (border.a != 0) {
+                        self.drawBox(rect.expand(1), border);
+                    }
                 },
             }
         }
@@ -1296,7 +1341,7 @@ pub fn Context(comptime config: Config) type {
             color: Color,
         ) void {
             // Measure and clip
-            const size = Vec2{ .x = font.measure(str), .y = font.text_height };
+            const size = font.measure(str);
             const rect = Rect{ .pt = pos, .sz = size };
             const clip = self.checkClip(rect);
             switch (clip) {
