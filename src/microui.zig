@@ -88,8 +88,8 @@ pub const Font = struct {
     text_width: *const fn (ptr: ?*anyopaque, str: []const u8) i32,
     ptr: ?*anyopaque = null,
 
-    pub fn measure(self: *const Font, text: []const u8) Vec2 {
-        return .{ .x = self.text_width(self.ptr, text), .y = self.text_height };
+    pub fn measure(self: *const Font, str: []const u8) Vec2 {
+        return .{ .x = self.text_width(self.ptr, str), .y = self.text_height };
     }
 };
 
@@ -484,9 +484,28 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
-            cnt.body = body;
-            if (opt.scroll) self.scrollbars(cnt, &cnt.body);
-            self.pushLayout(body.expand(-self.style.padding), cnt.scroll);
+            var mut_body = body;
+
+            if (opt.scroll) {
+                const sz = self.style.scrollbar_size;
+                var cs = cnt.content_size;
+                cs.x += 2 * self.style.padding;
+                cs.y += 2 * self.style.padding;
+
+                // resize body to make room for scrollbars
+                if (cs.y > cnt.body.sz.y) mut_body.sz.x -= sz;
+                if (cs.x > cnt.body.sz.x) mut_body.sz.y -= sz;
+
+                // TODO (Matteo): Implement actual scrollbars
+                self.pushClipRect(mut_body);
+                {
+                    cnt.scroll = .{};
+                }
+                self.popClipRect();
+            }
+
+            cnt.body = mut_body;
+            self.pushLayout(cnt.body.expand(-self.style.padding), cnt.scroll);
         }
 
         fn beginRootContainer(self: *Self, cnt: *Container) void {
@@ -516,13 +535,6 @@ pub fn Context(comptime config: Config) type {
             // Pop base clip rect and container
             self.popClipRect();
             self.popContainer();
-        }
-
-        fn scrollbars(self: *Self, cnt: *Container, body: *Rect) void {
-            _ = self;
-            _ = cnt;
-            _ = body;
-            // @compileError("Not implemented");
         }
 
         //=== Layout management ===//
@@ -614,7 +626,10 @@ pub fn Context(comptime config: Config) type {
             if (next_type != .Absolute) {
                 // Update position
                 layout.position.x += res.sz.x + style.spacing;
-                layout.next_row = std.math.max(layout.next_row, res.pt.y + res.sz.y + style.spacing);
+                layout.next_row = std.math.max(
+                    layout.next_row,
+                    res.pt.y + res.sz.y + style.spacing,
+                );
 
                 // Apply body offset
                 res.pt = res.pt.add(layout.body.pt);
@@ -766,18 +781,18 @@ pub fn Context(comptime config: Config) type {
             self.drawControlText(str, self.layoutNext(), .Text, .{});
         }
 
-        pub inline fn button(self: *Self, id: []const u8) Result {
-            return self.buttonEx(id, .None, .{ .align_center = true });
+        pub inline fn button(self: *Self, str: []const u8) Result {
+            return self.buttonEx(str, .None, .{ .align_center = true });
         }
 
         pub fn buttonEx(
             self: *Self,
-            id_str: []const u8,
+            str: []const u8,
             icon: Icon,
             opts: OptionFlags,
         ) Result {
-            const id = if (id_str.len > 0)
-                self.getId(id_str)
+            const id = if (str.len > 0)
+                self.getId(str)
             else
                 self.getId(std.mem.asBytes(&icon));
 
@@ -787,7 +802,7 @@ pub fn Context(comptime config: Config) type {
             // Draw
             self.drawButton(state, rect, opts);
             if (icon != .None) self.drawIcon(icon, rect, self.getColor(.Text));
-            if (id_str.len > 0) self.drawControlText(id_str, rect, .Text, opts);
+            if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
             // Handle click
             return Result{
@@ -795,8 +810,8 @@ pub fn Context(comptime config: Config) type {
             };
         }
 
-        pub fn checkbox(self: *Self, id_str: []const u8, checked: *bool) Result {
-            const id = self.getId(id_str);
+        pub fn checkbox(self: *Self, str: []const u8, checked: *bool) Result {
+            const id = self.getId(str);
             const rect = self.layoutNext();
             const state = self.updateControl(id, rect, .{});
 
@@ -815,7 +830,7 @@ pub fn Context(comptime config: Config) type {
             if (checked.*) self.drawIcon(.Check, box, self.getColor(.Text));
 
             self.drawControlText(
-                id_str,
+                str,
                 Rect.init(rect.pt.x + box_size, rect.pt.y, rect.sz.x - box_size, rect.sz.y),
                 .Text,
                 .{},
@@ -984,12 +999,12 @@ pub fn Context(comptime config: Config) type {
             return false;
         }
 
-        pub fn header(self: *Self, id: []const u8, opts: OptionFlags) Result {
-            return self.headerInternal(id, false, opts);
+        pub fn header(self: *Self, str: []const u8, opts: OptionFlags) Result {
+            return self.headerInternal(str, false, opts);
         }
 
-        pub fn beginTreeNode(self: *Self, id: []const u8, opts: OptionFlags) Result {
-            const res = self.headerInternal(id, true, opts);
+        pub fn beginTreeNode(self: *Self, str: []const u8, opts: OptionFlags) Result {
+            const res = self.headerInternal(str, true, opts);
             if (res.active) {
                 self.peekLayout().indent += self.style.indent;
                 self.id_stack.push(self.last_id);
@@ -1004,14 +1019,16 @@ pub fn Context(comptime config: Config) type {
 
         fn headerInternal(
             self: *Self,
-            id_str: []const u8,
+            str: []const u8,
             is_treenode: bool,
             opts: OptionFlags,
         ) Result {
-            const id = self.getId(id_str);
+            const id = self.getId(str);
             const pool_index = self.treenode_pool.get(id);
             const was_active = (pool_index != null);
             const expanded = opts.expanded != was_active; // opts.expanded XOR was_active
+
+            self.layoutRow(.{0}, 0);
             var r = self.layoutNext();
 
             // Handle click
@@ -1047,7 +1064,7 @@ pub fn Context(comptime config: Config) type {
             r.pt.x += delta_x;
             r.sz.x -= delta_x;
 
-            self.drawControlText(id_str, r, .Text, .{});
+            self.drawControlText(str, r, .Text, .{});
 
             return Result{ .active = expanded };
         }
@@ -1175,8 +1192,10 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) void {
-            self.pushId(name);
-            var cnt = self.getContainerById(self.last_id, opts) orelse unreachable;
+            const id = self.getId(name);
+            self.id_stack.push(id);
+
+            var cnt = self.getContainerById(id, opts) orelse unreachable;
             cnt.rect = self.layoutNext();
 
             if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
