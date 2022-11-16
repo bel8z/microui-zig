@@ -795,11 +795,33 @@ pub fn Context(comptime config: Config) type {
             };
         }
 
-        pub fn checkbox(self: *Self, id: []const u8, state: *bool) Result {
-            _ = self;
-            _ = id;
-            _ = state;
-            return Result{};
+        pub fn checkbox(self: *Self, id_str: []const u8, checked: *bool) Result {
+            const id = self.getId(id_str);
+            const rect = self.layoutNext();
+            const state = self.updateControl(id, rect, .{});
+
+            // Handle click
+            var res = Result{};
+            if (state.focused and self.input.mouse_pressed.left) {
+                res.change = true;
+                checked.* = !checked.*;
+            }
+
+            // Draw
+            const box_size = rect.sz.y;
+            const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
+            self.drawBase(state, box, .{});
+
+            if (checked.*) self.drawIcon(.Check, box, self.getColor(.Text));
+
+            self.drawControlText(
+                id_str,
+                Rect.init(rect.pt.x + box_size, rect.pt.y, rect.sz.x - box_size, rect.sz.y),
+                .Text,
+                .{},
+            );
+
+            return res;
         }
 
         pub fn textbox(self: *Self, buf: []u8, opts: OptionFlags) Result {
