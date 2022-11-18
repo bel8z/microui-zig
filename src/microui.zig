@@ -1028,7 +1028,8 @@ pub fn Context(comptime config: Config) type {
             const was_active = (pool_index != null);
             const expanded = opts.expanded != was_active; // opts.expanded XOR was_active
 
-            self.layoutRow(.{0}, 0);
+            // NOTE (Matteo): -1 causes the header to adapt to container width
+            self.layoutRow(.{-1}, 0);
             var r = self.layoutNext();
 
             // Handle click
