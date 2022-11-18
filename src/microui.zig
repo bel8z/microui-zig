@@ -605,22 +605,24 @@ pub fn Context(comptime config: Config) type {
                     layout.item_index = 0;
                 }
 
-                // Position
+                // Retrieve layout position and size and
                 res.pt = layout.position;
-
-                // Size
                 res.sz = layout.size;
 
-                if (layout.items > 0) res.sz.x = layout.widths[layout.item_index];
+                // Handle row layout
+                if (layout.items > 0) {
+                    res.sz.x = layout.widths[layout.item_index];
+                    layout.item_index += 1;
+                }
 
+                // Ensure minimum size
                 if (res.sz.x == 0) res.sz.x = style.size.x + 2 * style.padding;
                 if (res.sz.y == 0) res.sz.y = style.size.y + 2 * style.padding;
 
-                if (res.sz.x < 0) res.sz.x += layout.body.sz.x - res.pt.x + 1;
-                if (res.sz.y < 0) res.sz.y += layout.body.sz.y - res.pt.y + 1;
-
-                // Advance
-                layout.item_index += 1;
+                // NOTE (Matteo): Negative values mean auto-size to container body
+                // Originally only -1 was expected, but actually any negative value would do
+                if (res.sz.x < 0) res.sz.x = layout.body.sz.x - res.pt.x;
+                if (res.sz.y < 0) res.sz.y = layout.body.sz.y - res.pt.y;
             }
 
             if (next_type != .Absolute) {
@@ -652,7 +654,9 @@ pub fn Context(comptime config: Config) type {
                 .max = Vec2{ .x = min, .y = min },
             });
 
-            self.layoutRow(.{0}, 0);
+            // NOTE (Matteo): Originally there was a call to 'layoutRow' here, in order
+            // to force a row with 0 size. 'layoutNext' does the job already if a 0-sized
+            // layout is found.
         }
 
         fn peekLayout(self: *Self) *Layout {
