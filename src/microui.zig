@@ -183,6 +183,38 @@ pub const Style = struct {
     },
 };
 
+pub const TextBuffer = struct {
+    text: []u8,
+    cap: usize,
+
+    pub fn append(self: *TextBuffer, str: []const u8) bool {
+        const avail = self.cap - self.text.len;
+        const count = std.math.min(avail, str.len);
+        if (count > 0) {
+            std.mem.copy(u8, self.text[self.text.len..], str[0..count]);
+            self.text.len += count;
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn deleteLast(self: *TextBuffer) bool {
+        // TODO (Matteo): Use stdlib unicode facilities?
+        if (self.text.len > 0) {
+            // skip utf-8 continuation bytes
+            var cursor = self.text.len - 1;
+            while (cursor > 0 and (self.text[cursor] & 0xc0) == 0x80) {
+                cursor -= 1;
+            }
+            self.text.len = cursor;
+            return true;
+        }
+
+        return false;
+    }
+};
+
 pub fn Context(comptime config: Config) type {
     return struct {
         //=== Inner types ===//
@@ -619,10 +651,9 @@ pub fn Context(comptime config: Config) type {
                 if (res.sz.x == 0) res.sz.x = style.size.x + 2 * style.padding;
                 if (res.sz.y == 0) res.sz.y = style.size.y + 2 * style.padding;
 
-                // NOTE (Matteo): Negative values mean auto-size to container body
-                // Originally only -1 was expected, but actually any negative value would do
-                if (res.sz.x < 0) res.sz.x = layout.body.sz.x - res.pt.x;
-                if (res.sz.y < 0) res.sz.y = layout.body.sz.y - res.pt.y;
+                // TODO (Matteo): Review usage of negative dimensions
+                if (res.sz.x < 0) res.sz.x += 1 + layout.body.sz.x - res.pt.x;
+                if (res.sz.y < 0) res.sz.y += 1 + layout.body.sz.y - res.pt.y;
             }
 
             if (next_type != .Absolute) {
@@ -843,23 +874,72 @@ pub fn Context(comptime config: Config) type {
             return res;
         }
 
-        pub fn textbox(self: *Self, buf: []u8, opts: OptionFlags) Result {
-            return self.textboxRaw(buf, self.getId(buf), self.layoutNext(), opts);
+        pub fn textbox(self: *Self, buf: *TextBuffer, opts: OptionFlags) Result {
+            return self.textboxRaw(
+                buf,
+                self.getId(std.mem.asBytes(buf)),
+                self.layoutNext(),
+                opts,
+            );
         }
 
         pub fn textboxRaw(
             self: *Self,
-            buf: []u8,
+            buf: *TextBuffer,
             id: Id,
             rect: Rect,
             opts: OptionFlags,
         ) Result {
-            _ = self;
-            _ = buf;
-            _ = id;
-            _ = rect;
-            _ = opts;
-            return Result{};
+            var res = Result{};
+
+            var text_opts = opts;
+            text_opts.hold_focus = true;
+            const state = self.updateControl(id, rect, text_opts);
+
+            if (state.focused) {
+                // Handle text input
+                if (buf.append(self.input.text_buf[0..self.input.text_len])) {
+                    res.change = true;
+                }
+
+                // Handle backspace
+                if (self.input.key_pressed.backspace and buf.deleteLast()) {
+                    res.change = true;
+                }
+
+                // Handle return
+                if (self.input.key_pressed.enter) {
+                    self.setFocus(0);
+                    res.submit = true;
+                }
+            }
+
+            // Draw
+            self.drawBase(state, rect, opts);
+            if (state.focused) {
+                self.pushClipRect(rect);
+                defer self.popClipRect();
+
+                const font = self.style.font;
+                const size = font.measure(buf.text);
+
+                const pad = self.style.padding;
+                const ofx = std.math.min(pad, rect.sz.x - size.x - pad - 1);
+                const pos = Vec2{
+                    .x = rect.pt.x + std.math.min(ofx, self.style.padding),
+                    .y = rect.pt.y + @divTrunc(rect.sz.y - size.y, 2),
+                };
+
+                // Active text and cursor
+                const color = self.getColor(.Text);
+                self.drawText(font, buf.text, pos, color);
+                self.drawRect(Rect.init(pos.x + size.x, pos.y, 1, size.y), color);
+            } else {
+                // Inactive text
+                self.drawControlText(buf.text, rect, .Text, opts);
+            }
+
+            return res;
         }
 
         pub inline fn slider(

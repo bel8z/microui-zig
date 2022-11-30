@@ -347,12 +347,13 @@ fn logWindow(ctx: *Context) void {
         // input textbox + submit button
         const input = struct {
             var buf = [_]u8{0} ** 128;
+            var text = mu.TextBuffer{ .cap = buf.len, .text = buf[0..0] };
         };
         var submitted = false;
 
         ctx.layoutRow(.{ -70, -1 }, 0);
 
-        if (ctx.textbox(&input.buf, .{}).submit) {
+        if (ctx.textbox(&input.text, .{}).submit) {
             ctx.setFocus(ctx.*.last_id);
             submitted = true;
         }
