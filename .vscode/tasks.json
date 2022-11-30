@@ -1,0 +1,32 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "zig build --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "group": {
+                "kind": "build",
+            },
+        },
+        {
+            "label": "Run C demo",
+            "type": "shell",
+            "command": "zig build c --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "group": {
+                "kind": "build",
+            },
+        },
+        {
+            "label": "Run Zig demo",
+            "type": "shell",
+            "command": "zig build z --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+        },
+    ]
+}
