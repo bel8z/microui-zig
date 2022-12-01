@@ -188,10 +188,12 @@ pub const TextBuffer = struct {
     cap: usize,
 
     pub fn append(self: *TextBuffer, str: []const u8) bool {
-        const avail = self.cap - self.text.len;
-        const count = std.math.min(avail, str.len);
+        var dst = self.text.ptr[self.text.len..self.cap];
+
+        const count = std.math.min(dst.len, str.len);
+
         if (count > 0) {
-            std.mem.copy(u8, self.text[self.text.len..], str[0..count]);
+            std.mem.copy(u8, dst[0..count], str[0..count]);
             self.text.len += count;
             return true;
         }
@@ -276,12 +278,18 @@ pub fn Context(comptime config: Config) type {
             }
 
             pub fn text(self: *Input, str: []const u8) void {
-                std.mem.copy(u8, self.text_buf[self.text_len..], str);
+                const avail = self.text_buf.len - self.text_len;
+                const count = std.math.min(avail, str.len);
+
+                assert(count == str.len);
+
+                std.mem.copy(u8, self.text_buf[self.text_len..], str[0..count]);
+                self.text_len += count;
             }
 
             pub fn textZ(self: *Input, str: [*:0]const u8) void {
                 const len = std.mem.len(str);
-                std.mem.copy(u8, self.text_buf[self.text_len..], str[0..len]);
+                self.text(str[0..len]);
             }
         };
 
