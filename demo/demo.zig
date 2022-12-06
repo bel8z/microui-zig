@@ -76,7 +76,7 @@ pub fn main() !void {
         .text_width = textWidth,
     };
     var ui = try ui_alloc.create(Context);
-    var input = ui.init(&ui_font, null);
+    ui.init(&ui_font, null);
 
     // init SDL and renderer
     _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
@@ -97,6 +97,8 @@ pub fn main() !void {
     r_init(width, height);
 
     // main loop
+    var input = ui.getInput();
+
     while (true) {
         // handle SDL events
         var e: c.SDL_Event = undefined;

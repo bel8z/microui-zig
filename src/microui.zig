@@ -184,13 +184,19 @@ pub const Style = struct {
 };
 
 pub const TextBuffer = struct {
-    text: []u8,
-    cap: usize,
+    text: []u8 = &[_]u8{},
+    cap: usize = 0,
+
+    pub fn clear(self: *TextBuffer) void {
+        self.text.len = 0;
+    }
 
     pub fn append(self: *TextBuffer, str: []const u8) bool {
         var dst = self.text.ptr[self.text.len..self.cap];
 
         const count = std.math.min(dst.len, str.len);
+
+        assert(count == str.len);
 
         if (count > 0) {
             std.mem.copy(u8, dst[0..count], str[0..count]);
@@ -217,6 +223,72 @@ pub const TextBuffer = struct {
     }
 };
 
+pub const Input = struct {
+    mouse_pos: Vec2 = .{},
+    scroll_delta: Vec2 = .{},
+    mouse_down: MouseButtons = .{},
+    mouse_pressed: MouseButtons = .{},
+    key_down: Keys = .{},
+    key_pressed: Keys = .{},
+    text_buf: TextBuffer,
+
+    pub fn init(text_buffer: []u8) Input {
+        return Input{ .text_buf = TextBuffer{
+            .cap = text_buffer.len,
+            .text = text_buffer.ptr[0..0],
+        } };
+    }
+
+    pub fn clear(self: *Input) void {
+        self.key_pressed = .{};
+        self.mouse_pressed = .{};
+        self.scroll_delta = .{};
+        self.text_buf.clear();
+    }
+
+    pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
+        self.mouse_pos = .{ .x = x, .y = y };
+    }
+
+    pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+        if (btn.any()) {
+            self.mouseMove(x, y);
+            self.mouse_down = self.mouse_down.unionWith(btn);
+            self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+        }
+    }
+
+    pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+        if (btn.any()) {
+            self.mouseMove(x, y);
+            self.mouse_down = self.mouse_down.exceptWith(btn);
+        }
+    }
+
+    pub inline fn scroll(self: *Input, x: i32, y: i32) void {
+        self.scroll_delta.x += x;
+        self.scroll_delta.y += y;
+    }
+
+    pub fn keyDown(self: *Input, key: Keys) void {
+        self.key_down = self.key_down.unionWith(key);
+        self.key_pressed = self.key_pressed.unionWith(key);
+    }
+
+    pub fn keyUp(self: *Input, key: Keys) void {
+        self.key_down = self.key_down.exceptWith(key);
+    }
+
+    pub fn text(self: *Input, str: []const u8) void {
+        _ = self.text_buf.append(str);
+    }
+
+    pub fn textZ(self: *Input, str: [*:0]const u8) void {
+        const len = std.mem.len(str);
+        _ = self.text_buf.append(str[0..len]);
+    }
+};
+
 pub fn Context(comptime config: Config) type {
     return struct {
         //=== Inner types ===//
@@ -226,72 +298,6 @@ pub fn Context(comptime config: Config) type {
         pub const Real = config.real;
 
         pub const DrawFrameFn = *const fn (self: *Self, rect: Rect, color: ColorId) void;
-
-        pub const Input = struct {
-            mouse_pos: Vec2 = .{},
-            scroll_delta: Vec2 = .{},
-            mouse_down: MouseButtons = .{},
-            mouse_pressed: MouseButtons = .{},
-            key_down: Keys = .{},
-            key_pressed: Keys = .{},
-            text_buf: [config.input_buf_size]u8 = [_]u8{0} ** config.input_buf_size,
-            text_len: usize = 0,
-
-            pub fn clear(self: *Input) void {
-                self.key_pressed = .{};
-                self.mouse_pressed = .{};
-                self.scroll_delta = .{};
-                self.text_len = 0;
-            }
-
-            pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
-                self.mouse_pos = .{ .x = x, .y = y };
-            }
-
-            pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
-                if (btn.any()) {
-                    self.mouseMove(x, y);
-                    self.mouse_down = self.mouse_down.unionWith(btn);
-                    self.mouse_pressed = self.mouse_pressed.unionWith(btn);
-                }
-            }
-
-            pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
-                if (btn.any()) {
-                    self.mouseMove(x, y);
-                    self.mouse_down = self.mouse_down.exceptWith(btn);
-                }
-            }
-
-            pub inline fn scroll(self: *Input, x: i32, y: i32) void {
-                self.scroll_delta.x += x;
-                self.scroll_delta.y += y;
-            }
-
-            pub fn keyDown(self: *Input, key: Keys) void {
-                self.key_down = self.key_down.unionWith(key);
-                self.key_pressed = self.key_pressed.unionWith(key);
-            }
-
-            pub fn keyUp(self: *Input, key: Keys) void {
-                self.key_down = self.key_down.exceptWith(key);
-            }
-
-            pub fn text(self: *Input, str: []const u8) void {
-                const avail = self.text_buf.len - self.text_len;
-                const count = std.math.min(avail, str.len);
-
-                assert(count == str.len);
-
-                std.mem.copy(u8, self.text_buf[self.text_len..], str[0..count]);
-                self.text_len += count;
-            }
-
-            pub fn textZ(self: *Input, str: [*:0]const u8) void {
-                const len = std.mem.len(str);
-                self.text(str[0..len]);
-            }
-        };
 
         const LayoutType = enum(u2) { None = 0, Relative = 1, Absolute = 2 };
 
@@ -347,7 +353,8 @@ pub fn Context(comptime config: Config) type {
         treenode_pool: util.Pool(config.treenode_pool_size) = .{},
 
         // input state
-        input: Input = .{},
+        input: Input = .{ .text_buf = .{} },
+        input_buf: [config.input_buf_size]u8 = undefined,
         mouse_delta: Vec2 = .{},
 
         // TODO (Matteo): Review - used to intercept missing calls to 'init'
@@ -355,7 +362,7 @@ pub fn Context(comptime config: Config) type {
 
         //=== Initialization ===//
 
-        pub fn init(self: *Self, font: *Font, draw_frame: ?DrawFrameFn) Input {
+        pub fn init(self: *Self, font: *Font, draw_frame: ?DrawFrameFn) void {
             // TODO (Matteo): Review
             // This init function is basically only required for making sure
             // that the 'style' pointer points to the internal '_style' member
@@ -367,11 +374,14 @@ pub fn Context(comptime config: Config) type {
             self.style = &self._style;
 
             if (draw_frame) |ptr| self.draw_frame = ptr;
-
-            return .{};
         }
 
         //=== Frame management ===//
+
+        pub fn getInput(self: *Self) Input {
+            std.mem.set(u8, self.input_buf[0..], 0);
+            return Input.init(self.input_buf[0..]);
+        }
 
         pub fn beginFrame(self: *Self, input: *Input) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
@@ -906,7 +916,7 @@ pub fn Context(comptime config: Config) type {
 
             if (state.focused) {
                 // Handle text input
-                if (buf.append(self.input.text_buf[0..self.input.text_len])) {
+                if (buf.append(self.input.text_buf.text)) {
                     res.change = true;
                 }
 
