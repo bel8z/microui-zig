@@ -187,6 +187,10 @@ pub const TextBuffer = struct {
     text: []u8 = &[_]u8{},
     cap: usize = 0,
 
+    pub fn fromSlice(slice: []u8) TextBuffer {
+        return TextBuffer{ .cap = slice.len, .text = slice[0..0] };
+    }
+
     pub fn clear(self: *TextBuffer) void {
         self.text.len = 0;
     }
@@ -233,10 +237,7 @@ pub const Input = struct {
     text_buf: TextBuffer,
 
     pub fn init(text_buffer: []u8) Input {
-        return Input{ .text_buf = TextBuffer{
-            .cap = text_buffer.len,
-            .text = text_buffer.ptr[0..0],
-        } };
+        return Input{ .text_buf = TextBuffer.fromSlice(text_buffer) };
     }
 
     pub fn clear(self: *Input) void {

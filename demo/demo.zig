@@ -349,20 +349,18 @@ fn logWindow(ctx: *Context) void {
         // input textbox + submit button
         const input = struct {
             var buf = [_]u8{0} ** 128;
-            var text = mu.TextBuffer{ .cap = buf.len, .text = buf[0..0] };
+            var text = mu.TextBuffer.fromSlice(buf[0..]);
         };
-        var submitted = false;
 
         ctx.layoutRow(.{ -70, -1 }, 0);
 
-        if (ctx.textbox(&input.text, .{}).submit) {
-            ctx.setFocus(ctx.*.last_id);
-            submitted = true;
-        }
+        var result = ctx.textbox(&input.text, .{});
 
-        if (ctx.button("Submit").any()) submitted = true;
+        if (result.submit) ctx.setFocus(ctx.*.last_id);
 
-        if (submitted) {
+        if (ctx.button("Submit").any()) result.submit = true;
+
+        if (result.submit) {
             const len = std.mem.indexOfScalar(u8, input.buf[0..], 0) orelse unreachable;
             writeLog(input.buf[0..len :0]);
             std.mem.set(u8, input.buf[0..], 0);
