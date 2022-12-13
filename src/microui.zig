@@ -43,9 +43,9 @@ pub const Config = struct {
     treenode_pool_size: usize = 48,
     max_widths: usize = 16,
     real: type = f32,
-    real_fmt: []const u8 = "{:.3}",
+    real_fmt: []const u8 = "{d:.3}",
     slider_fmt: []const u8 = "{d:.2}",
-    max_fmt: usize = 127,
+    fmt_buf_size: usize = 127,
     input_buf_size: usize = 32,
 };
 
@@ -195,6 +195,16 @@ pub const TextBuffer = struct {
         self.text.len = 0;
     }
 
+    pub fn print(self: *TextBuffer, comptime fmt: []const u8, args: anytype) bool {
+        var stream = std.io.fixedBufferStream(self.text.ptr[0..self.cap]);
+        std.fmt.format(stream.writer(), fmt, args) catch return false;
+
+        assert(self.text.ptr == stream.buffer.ptr);
+
+        self.text = stream.getWritten();
+        return true;
+    }
+
     pub fn append(self: *TextBuffer, str: []const u8) bool {
         var dst = self.text.ptr[self.text.len..self.cap];
 
@@ -316,7 +326,14 @@ pub fn Context(comptime config: Config) type {
             indent: i32 = 0,
         };
 
+        const NumberEdit = struct {
+            id: Id = 0,
+            buf: TextBuffer,
+        };
+
         const Self = @This();
+
+        const scratch_size = config.input_buf_size + config.fmt_buf_size;
 
         //=== Data ===//
 
@@ -337,8 +354,7 @@ pub fn Context(comptime config: Config) type {
         hover_root: ?*Container = null,
         next_hover_root: ?*Container = null,
         scroll_target: ?*Container = null,
-        number_edit_buf: [config.max_fmt]u8 = undefined,
-        number_edit: Id = 0,
+        number_edit: NumberEdit,
 
         // stacks
         command_list: CommandList(config.command_list_size) = .{},
@@ -355,8 +371,9 @@ pub fn Context(comptime config: Config) type {
 
         // input state
         input: Input = .{ .text_buf = .{} },
-        input_buf: [config.input_buf_size]u8 = undefined,
         mouse_delta: Vec2 = .{},
+
+        scratch_buf: [scratch_size]u8 = undefined,
 
         // TODO (Matteo): Review - used to intercept missing calls to 'init'
         init_code: u16,
@@ -370,7 +387,12 @@ pub fn Context(comptime config: Config) type {
             self.* = Self{
                 ._style = Style{ .font = font },
                 .init_code = 0x1DEA,
+                .number_edit = .{
+                    .buf = TextBuffer.fromSlice(self.scratch_buf[config.input_buf_size..]),
+                },
             };
+
+            assert(self.number_edit.buf.cap == config.fmt_buf_size);
 
             self.style = &self._style;
 
@@ -380,8 +402,9 @@ pub fn Context(comptime config: Config) type {
         //=== Frame management ===//
 
         pub fn getInput(self: *Self) Input {
-            std.mem.set(u8, self.input_buf[0..], 0);
-            return Input.init(self.input_buf[0..]);
+            var buf = self.scratch_buf[0..config.input_buf_size];
+            std.mem.set(u8, buf, 0);
+            return Input.init(buf);
         }
 
         pub fn beginFrame(self: *Self, input: *Input) !void {
@@ -988,12 +1011,12 @@ pub fn Context(comptime config: Config) type {
         ) Result {
             const id = self.getId(std.mem.asBytes(&value));
             const base = self.layoutNext();
+            const state = self.updateControl(id, base, opts);
 
             // Handle text input mode
-            if (self.numberTextbox(value, base, id)) return Result{};
+            if (self.numberTextbox(value, base, id, state)) return Result{};
 
             // Handle normal mode
-            const state = self.updateControl(id, base, opts);
             const last = value.*;
             const range = high - low;
             var v = last;
@@ -1027,7 +1050,7 @@ pub fn Context(comptime config: Config) type {
             );
             self.drawButton(state, thumb, opts);
             // Text
-            var buf: [config.max_fmt]u8 = undefined;
+            var buf: [config.fmt_buf_size]u8 = undefined;
             self.drawControlText(
                 std.fmt.bufPrint(&buf, fmt, .{v}) catch unreachable,
                 base,
@@ -1077,7 +1100,7 @@ pub fn Context(comptime config: Config) type {
             self.drawBase(state, base, opts);
 
             // Draw text
-            var buf: [config.max_fmt]u8 = undefined;
+            var buf: [config.fmt_buf_size]u8 = undefined;
             self.drawControlText(
                 std.fmt.bufPrint(&buf, fmt, .{value.*}) catch unreachable,
                 base,
@@ -1094,11 +1117,31 @@ pub fn Context(comptime config: Config) type {
             value: *Real,
             r: Rect,
             id: Id,
+            state: ControlState,
         ) bool {
-            _ = self;
-            _ = value;
-            _ = r;
-            _ = id;
+            // TODO (Matteo): Update using TextBuffer
+
+            if (self.input.mouse_pressed.left and
+                self.input.key_down.shift and
+                state.hovered)
+            {
+                self.number_edit.id = id;
+                _ = self.number_edit.buf.print(config.real_fmt, .{value.*});
+            }
+
+            if (self.number_edit.id == id) {
+                const res = self.textboxRaw(&self.number_edit.buf, id, r, .{});
+
+                // Signal if the input is still in progress
+                if (!res.submit and state.focused) return true;
+
+                self.number_edit.id = 0;
+
+                if (std.fmt.parseFloat(Real, self.number_edit.buf.text)) |x| {
+                    value.* = x;
+                } else |_| {}
+            }
+
             return false;
         }
 
