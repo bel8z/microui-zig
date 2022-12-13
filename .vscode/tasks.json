@@ -14,7 +14,7 @@
         {
             "label": "Run C demo",
             "type": "shell",
-            "command": "zig build c --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "command": "zig build c --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache -Drelease-small",
             "group": {
                 "kind": "build",
             },
