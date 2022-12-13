@@ -180,18 +180,14 @@ fn textWidth(ptr: ?*anyopaque, str: []const u8) i32 {
     return r_get_text_width(str.ptr, @intCast(c_int, str.len));
 }
 
-fn writeLog(text: [:0]const u8) void {
+fn writeLog(text: []const u8) void {
     const l = logbuf.getPos() catch unreachable;
 
-    if (l > 0) {
-        // Replace null terminator with new line
-        logbuf.seekBy(-1) catch unreachable;
-        _ = logbuf.write(&[_]u8{'\n'}) catch unreachable;
-    }
+    // Append new line
+    if (l > 0) _ = logbuf.write("\n") catch unreachable;
 
-    // Append text & terminator
+    // Append text
     _ = logbuf.write(text) catch unreachable;
-    _ = logbuf.write(&[_]u8{0}) catch unreachable;
 
     logbuf_updated = true;
 }
@@ -361,9 +357,8 @@ fn logWindow(ctx: *Context) void {
         if (ctx.button("Submit").any()) result.submit = true;
 
         if (result.submit) {
-            const len = std.mem.indexOfScalar(u8, input.buf[0..], 0) orelse unreachable;
-            writeLog(input.buf[0..len :0]);
-            std.mem.set(u8, input.buf[0..], 0);
+            writeLog(input.text.text);
+            input.text.clear();
         }
     }
 }

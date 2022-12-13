@@ -164,7 +164,6 @@ pub const Style = struct {
     title_height: i32 = 24,
     scrollbar_size: i32 = 12,
     thumb_size: i32 = 8,
-    // TODO (Matteo): populate
     colors: [util.memberCount(ColorId)]Color = [_]Color{
         .{ .r = 230, .g = 230, .b = 230, .a = 255 }, // Text
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // Border
@@ -345,11 +344,11 @@ pub fn Context(comptime config: Config) type {
         _style: Style,
         style: *Style = undefined,
         hover: Id = 0,
-        focus: Id = 0,
+        last_focus: Id = 0,
+        curr_focus: Id = 0,
         last_id: Id = 0,
         last_rect: Rect = .{},
         last_zindex: i32 = 0,
-        updated_focus: bool = false,
         frame: u32 = 0,
         hover_root: ?*Container = null,
         next_hover_root: ?*Container = null,
@@ -427,6 +426,9 @@ pub fn Context(comptime config: Config) type {
             self.input = input.*;
             input.clear();
 
+            self.last_focus = self.curr_focus;
+            self.curr_focus = 0;
+
             self.frame +%= 1; // wrapping increment, overflow is somewhat expected
         }
 
@@ -441,10 +443,6 @@ pub fn Context(comptime config: Config) type {
             if (self.scroll_target) |tgt| {
                 tgt.scroll = tgt.scroll.add(self.input.scroll_delta);
             }
-
-            // unset focus if focus id was not touched this frame
-            if (!self.updated_focus) self.focus = 0;
-            self.updated_focus = false;
 
             // Bring hover root to front if mouse was pressed
             if (self.next_hover_root) |hover_root| {
@@ -469,7 +467,7 @@ pub fn Context(comptime config: Config) type {
             const n = self.root_list.idx;
             std.sort.sort(*Container, self.root_list.items[0..n], {}, compare.lessThan);
 
-            // TODO (Matteo)
+            // TODO (Matteo): Review
             // Set root container jump commands
             for (self.root_list.items[0..n]) |cnt, i| {
                 // If this is the first container then make the first command jump to it.
@@ -490,23 +488,18 @@ pub fn Context(comptime config: Config) type {
 
         //=== ID management ===//
 
-        pub fn getId(self: *Self, data: []const u8) Id {
+        pub fn getId(self: *Self, data: anytype) Id {
             const init_id = if (self.id_stack.peek()) |id| id.* else HASH_INITIAL;
             self.last_id = hash(data, init_id);
             return self.last_id;
         }
 
-        pub fn pushId(self: *Self, data: []const u8) void {
+        pub fn pushId(self: *Self, data: anytype) void {
             self.id_stack.push(self.getId(data));
         }
 
         pub fn popId(self: *Self) void {
             _ = self.id_stack.pop();
-        }
-
-        pub fn setFocus(self: *Self, id: Id) void {
-            self.focus = id;
-            self.updated_focus = true;
         }
 
         //=== Container management ===//
@@ -777,7 +770,6 @@ pub fn Context(comptime config: Config) type {
 
         //=== Controls ===//
 
-        // TODO (Matteo): Maybe rename
         pub fn updateControl(
             self: *Self,
             id: Id,
@@ -791,11 +783,11 @@ pub fn Context(comptime config: Config) type {
             // TODO (Matteo): Tidy up the logic here
 
             var state = ControlState{
-                .focused = (self.focus == id),
+                .focused = (self.last_focus == id),
                 .hovered = (self.hover == id),
             };
 
-            if (state.focused) self.updated_focus = true;
+            if (state.focused) self.curr_focus = id;
 
             if (opts.interact) {
                 if (mouse_over and !mouse_down) {
@@ -807,20 +799,24 @@ pub fn Context(comptime config: Config) type {
                     if ((mouse_pressed and !mouse_over) or
                         (!mouse_down and !opts.hold_focus))
                     {
-                        self.setFocus(0);
+                        self.curr_focus = 0;
                         state.focused = false;
                     }
                 }
 
                 if (state.hovered) {
                     if (mouse_pressed) {
-                        self.setFocus(id);
+                        self.curr_focus = id;
                         state.focused = true;
                     } else if (!mouse_over) {
                         self.hover = 0;
                         state.hovered = false;
                     }
                 }
+            }
+
+            if (state.focused) {
+                self.drawBox(rect.expand(2), Color{ .r = 255, .b = 255, .a = 255 });
             }
 
             return state;
@@ -848,7 +844,7 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn text(self: *Self, str: []const u8) void {
-            // TODO (Matteo): Proper shaping
+            // TODO (Matteo): Handle multi-line (and text layout in general)
             const rect = self.layoutNext();
             const color = self.getColor(.Text);
             self.drawText(self.style.font, str, rect.pt, color);
@@ -871,7 +867,7 @@ pub fn Context(comptime config: Config) type {
             const id = if (str.len > 0)
                 self.getId(str)
             else
-                self.getId(std.mem.asBytes(&icon));
+                self.getId(icon);
 
             const rect = self.layoutNext();
             const state = self.updateControl(id, rect, opts);
@@ -919,7 +915,7 @@ pub fn Context(comptime config: Config) type {
         pub fn textbox(self: *Self, buf: *TextBuffer, opts: OptionFlags) Result {
             return self.textboxRaw(
                 buf,
-                self.getId(std.mem.asBytes(buf)),
+                self.getId(buf),
                 self.layoutNext(),
                 opts,
             );
@@ -951,7 +947,7 @@ pub fn Context(comptime config: Config) type {
 
                 // Handle return
                 if (self.input.key_pressed.enter) {
-                    self.setFocus(0);
+                    self.curr_focus = 0;
                     res.submit = true;
                 }
             }
@@ -1009,7 +1005,7 @@ pub fn Context(comptime config: Config) type {
             comptime fmt: []const u8,
             opts: OptionFlags,
         ) Result {
-            const id = self.getId(std.mem.asBytes(&value));
+            const id = self.getId(value);
             const base = self.layoutNext();
             const state = self.updateControl(id, base, opts);
 
@@ -1081,7 +1077,7 @@ pub fn Context(comptime config: Config) type {
             comptime fmt: []const u8,
             opts: OptionFlags,
         ) Result {
-            const id = self.getId(std.mem.asBytes(&value));
+            const id = self.getId(value);
             const base = self.layoutNext();
             const last = value.*;
 
@@ -1119,7 +1115,7 @@ pub fn Context(comptime config: Config) type {
             id: Id,
             state: ControlState,
         ) bool {
-            // TODO (Matteo): Update using TextBuffer
+            // TODO (Matteo): Improve NumberEdit API?
 
             if (self.input.mouse_pressed.left and
                 self.input.key_down.shift and
@@ -1615,10 +1611,13 @@ test "Primitives" {
 
 const HASH_INITIAL: Id = 2166136261;
 
-fn hash(data: []const u8, hash_in: Id) Id {
+fn hash(data: anytype, hash_in: Id) Id {
     var hash_out = hash_in;
 
-    for (data) |byte| {
+    // const bytes = std.mem.asBytes(&data);
+    const bytes = std.mem.toBytes(data);
+
+    for (bytes) |byte| {
         hash_out = (hash_out ^ byte) *% 16777619;
     }
 
