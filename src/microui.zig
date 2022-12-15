@@ -817,9 +817,10 @@ pub fn Context(comptime config: Config) type {
                 }
             }
 
-            if (state.focused) {
-                self.drawBox(rect.expand(2), Color{ .r = 255, .b = 255, .a = 255 });
-            }
+            // DEBUG (Matteo): Show last focused item
+            // if (state.focused) {
+            //     self.drawBox(rect.expand(2), Color{ .r = 255, .b = 255, .a = 255 });
+            // }
 
             return state;
         }
