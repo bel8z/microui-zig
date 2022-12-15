@@ -553,28 +553,63 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
-            var mut_body = body;
+            cnt.body = body;
 
             if (opt.scroll) {
-                const sz = self.style.scrollbar_size;
                 var cs = cnt.content_size;
                 cs.x += 2 * self.style.padding;
                 cs.y += 2 * self.style.padding;
 
-                // resize body to make room for scrollbars
-                if (cs.y > cnt.body.sz.y) mut_body.sz.x -= sz;
-                if (cs.x > cnt.body.sz.x) mut_body.sz.y -= sz;
-
-                // TODO (Matteo): Implement actual scrollbars
-                self.pushClipRect(mut_body);
-                {
-                    cnt.scroll = .{};
-                }
+                self.pushClipRect(cnt.body);
+                self.scrollbars(cnt, cs);
                 self.popClipRect();
             }
 
-            cnt.body = mut_body;
             self.pushLayout(cnt.body.expand(-self.style.padding), cnt.scroll);
+        }
+
+        fn scrollbars(self: *Self, cnt: *Container, cs: Vec2) void {
+            const sz = self.style.scrollbar_size;
+
+            if (cs.y > cnt.body.sz.y) cnt.body.sz.x -= sz;
+            if (cs.x > cnt.body.sz.x) cnt.body.sz.y -= sz;
+
+            const max_scroll = cs.sub(cnt.body.sz);
+            const body_hover = self.mouseOver(cnt.body);
+
+            // Only add scrollbar if content size is larger than body
+            if (max_scroll.y > 0 and cnt.body.sz.y > 0) {
+                const id = self.getId("!vscrollbar");
+
+                // Get size and position
+                var base = cnt.body;
+                base.pt.x = cnt.body.pt.x + cnt.body.sz.x;
+                base.sz.x = sz;
+
+                // Handle input
+                const state = self.updateControl(id, base, .{});
+                if (state.focused and self.input.mouse_down.left) {
+                    cnt.scroll.y += @divTrunc(self.mouse_delta.y * cs.y, base.sz.y);
+                }
+
+                // Clamp scroll to limits
+                cnt.scroll.y = std.math.clamp(cnt.scroll.y, 0, max_scroll.y);
+
+                // Set this as scroll target (respond to mousewheel input) if
+                // the body is hovered
+                if (body_hover) self.scroll_target = cnt;
+
+                // Draw
+                self.drawFrame(base, .ScrollBase);
+                var thumb = base;
+                thumb.sz.y = std.math.max(self.style.thumb_size, @divTrunc(base.sz.y * cnt.body.sz.y, cs.y));
+                thumb.pt.y += @divTrunc(cnt.scroll.y * (base.sz.y - thumb.sz.y), max_scroll.y);
+                self.drawFrame(thumb, .ScrollThumb);
+            } else {
+                cnt.scroll.y = 0;
+            }
+
+            // TODO (Matteo): Horizontal scrollbar!
         }
 
         fn beginRootContainer(self: *Self, cnt: *Container) void {
@@ -735,7 +770,8 @@ pub fn Context(comptime config: Config) type {
 
         pub fn pushClipRect(self: *Self, rect: Rect) void {
             const last = self.peekClipRect();
-            self.clip_stack.push(last.intersect(rect));
+            const clip = last.intersect(rect);
+            self.clip_stack.push(clip);
         }
 
         pub fn popClipRect(self: *Self) void {
@@ -1492,7 +1528,7 @@ pub fn Context(comptime config: Config) type {
             const clipped = self.peekClipRect().intersect(rect);
 
             if (clipped.sz.x > 0 and clipped.sz.y > 0) {
-                self.command_list.pushRect(rect, color);
+                self.command_list.pushRect(clipped, color);
             }
         }
 
