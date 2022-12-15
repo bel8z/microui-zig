@@ -352,7 +352,7 @@ fn logWindow(ctx: *Context) void {
 
         var result = ctx.textbox(&input.text, .{});
 
-        if (result.submit) ctx.setFocus(ctx.*.last_id);
+        if (result.submit) ctx.curr_focus = ctx.*.last_id;
 
         if (ctx.button("Submit").any()) result.submit = true;
 
