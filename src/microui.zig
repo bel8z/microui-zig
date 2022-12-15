@@ -844,10 +844,52 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn text(self: *Self, str: []const u8) void {
-            // TODO (Matteo): Handle multi-line (and text layout in general)
-            const rect = self.layoutNext();
+            // TODO (Matteo): Handle proper text shaping (via user callbacks?)
             const color = self.getColor(.Text);
-            self.drawText(self.style.font, str, rect.pt, color);
+            const font = self.style.font;
+
+            self.layoutBeginColumn();
+            defer self.layoutEndColumn();
+            self.layoutRow(.{-1}, font.text_height);
+
+            var cursor: usize = 0;
+            var line_end = cursor;
+
+            while (line_end != str.len) {
+                const r = self.layoutNext();
+                var line_width: i32 = 0;
+
+                var line_start = cursor;
+                line_end = line_start;
+
+                while (true) {
+                    const word_start = cursor;
+
+                    if (std.mem.indexOfAnyPos(u8, str, cursor, " \n")) |word_end| {
+                        cursor = word_end;
+
+                        line_width += font.measure(str[word_start..word_end]).x;
+
+                        // If the word would exceed the available width, wrap previous line
+                        if (line_width > r.sz.x and line_end != line_start) break;
+
+                        // Add space to the width and advance
+                        line_width += font.measure(str[line_end..cursor]).x;
+                        line_end = cursor;
+                        cursor += 1;
+                    } else {
+                        // No spaces or newlines left, render all remaining text
+                        // TODO (Matteo): Improve this - last word could be truncated
+                        cursor = str.len;
+                        line_end = cursor;
+                    }
+
+                    if (line_end == str.len or str[line_end] == '\n') break;
+                }
+
+                self.drawText(font, str[line_start..line_end], r.pt, color);
+                cursor = line_end + 1;
+            }
         }
 
         pub fn label(self: *Self, str: []const u8) void {
