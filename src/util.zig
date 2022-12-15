@@ -66,7 +66,7 @@ test "Stack" {
 
 //============//
 
-const PoolItem = struct { id: Id = undefined, last_update: u32 = 0 };
+const PoolItem = struct { id: Id = 0, last_update: u32 = 0 };
 
 // TODO (Matteo): API review. At the moment multiple elements with the same ID
 // can be stored - this does not happen if the expected usage, which is to always
@@ -79,23 +79,36 @@ pub fn Pool(comptime N: usize) type {
         const Self = @This();
 
         pub fn init(self: *Self, id: Id, curr_frame: u32) usize {
-            var last_index = N;
-            var frame = curr_frame;
+            assert(id != 0);
 
-            // Find the least recently updated item
-            for (self.items) |item, index| {
-                if (item.last_update < frame) {
-                    frame = item.last_update;
-                    last_index = index;
+            var slot = N;
+
+            if (curr_frame == 0) {
+                // First frame, find first free slot
+                for (self.items) |item, index| {
+                    if (item.id == 0) {
+                        slot = index;
+                        break;
+                    }
+                }
+            } else {
+                var frame = curr_frame;
+
+                // Find the least recently updated item
+                for (self.items) |item, index| {
+                    if (item.last_update < frame) {
+                        frame = item.last_update;
+                        slot = index;
+                    }
                 }
             }
 
-            assert(last_index < N);
+            assert(slot < N);
 
-            self.items[last_index].id = id;
-            self.items[last_index].last_update = curr_frame;
+            self.items[slot].id = id;
+            self.items[slot].last_update = curr_frame;
 
-            return last_index;
+            return slot;
         }
 
         pub fn get(self: *Self, id: Id) ?usize {
@@ -120,7 +133,7 @@ test "Pool" {
     try expect(p.get(1) == null);
 
     try expect(p.init(1, 0) == 0);
-    try expect(p.init(1, 0) == 1);
+    try expect(p.init(2, 0) == 1);
 
     try expect(p.get(1).? == 0);
     try expect(p.get(2).? == 1);
@@ -131,7 +144,7 @@ test "Pool" {
     p.update(0, 5);
 
     try expect(p.init(4, 5) == 1);
-    try expect(p.get(4).? == 4);
+    try expect(p.get(4).? == 1);
 }
 
 //============//

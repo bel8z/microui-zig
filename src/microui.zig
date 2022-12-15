@@ -19,7 +19,9 @@ test "MicroUi" {
 
     var font: Font = undefined;
     var ui: MicroUi = undefined;
-    var input = ui.init(&font, null);
+    ui.init(&font, null);
+
+    var input = ui.getInput();
 
     try ui.beginFrame(&input);
     defer ui.endFrame();
