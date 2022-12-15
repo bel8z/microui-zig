@@ -386,7 +386,7 @@ fn styleWindow(ctx: *Context) void {
 fn sliderU8(ctx: *Context, value: *u8, low: u8, high: u8) mu.Result {
     var tmp = @intToFloat(f32, value.*);
 
-    ctx.pushId(std.mem.asBytes(&value));
+    ctx.pushId(value);
 
     const res = ctx.sliderEx(
         &tmp,
