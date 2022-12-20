@@ -609,7 +609,37 @@ pub fn Context(comptime config: Config) type {
                 cnt.scroll.y = 0;
             }
 
-            // TODO (Matteo): Horizontal scrollbar!
+            // Only add scrollbar if content size is larger than body
+            if (max_scroll.x > 0 and cnt.body.sz.x > 0) {
+                const id = self.getId("!hscrollbar");
+
+                // Get size and position
+                var base = cnt.body;
+                base.pt.y = cnt.body.pt.y + cnt.body.sz.y;
+                base.sz.y = sz;
+
+                // Handle input
+                const state = self.updateControl(id, base, .{});
+                if (state.focused and self.input.mouse_down.left) {
+                    cnt.scroll.x += @divTrunc(self.mouse_delta.x * cs.x, base.sz.x);
+                }
+
+                // Clamp scroll to limits
+                cnt.scroll.x = std.math.clamp(cnt.scroll.x, 0, max_scroll.x);
+
+                // Set this as scroll target (respond to mousewheel input) if
+                // the body is hovered
+                if (body_hover) self.scroll_target = cnt;
+
+                // Draw
+                self.drawFrame(base, .ScrollBase);
+                var thumb = base;
+                thumb.sz.x = std.math.max(self.style.thumb_size, @divTrunc(base.sz.x * cnt.body.sz.x, cs.x));
+                thumb.pt.x += @divTrunc(cnt.scroll.x * (base.sz.x - thumb.sz.x), max_scroll.x);
+                self.drawFrame(thumb, .ScrollThumb);
+            } else {
+                cnt.scroll.x = 0;
+            }
         }
 
         fn beginRootContainer(self: *Self, cnt: *Container) void {
