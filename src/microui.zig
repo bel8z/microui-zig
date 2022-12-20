@@ -698,7 +698,7 @@ pub fn Context(comptime config: Config) type {
                 i -= 1;
 
                 const slot = self.container_stack.items[i];
-                if (self.containers[slot] == self.hover_root) return true;
+                if (&self.containers[slot] == self.hover_root) return true;
 
                 // Only root containers have their `head` field set; stop searching
                 // if we've reached the current root container
