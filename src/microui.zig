@@ -196,7 +196,7 @@ pub fn Context(comptime config: Config) type {
         // stacks
         command_list: command.CommandList(config.command_list_size) = .{},
         root_list: util.Stack(*Container, config.rootlist_size) = .{},
-        container_stack: util.Stack(*Container, config.container_stack_size) = .{},
+        container_stack: util.Stack(util.PoolSlot, config.container_stack_size) = .{},
         clip_stack: util.Stack(Rect, config.clip_stack_size) = .{},
         id_stack: util.Stack(Id, config.id_stack_size) = .{},
         layout_stack: util.Stack(Layout, config.layout_stack_size) = .{},
@@ -343,13 +343,14 @@ pub fn Context(comptime config: Config) type {
         //=== Container management ===//
 
         pub fn getCurrentContainer(self: *Self) *Container {
-            var ptr = self.container_stack.peek() orelse unreachable;
-            return ptr.*;
+            const slot = self.container_stack.peek() orelse unreachable;
+            return &self.containers[slot.*];
         }
 
         pub fn getContainer(self: *Self, name: []const u8) *Container {
             const id = self.getId(name);
-            return self.getContainerById(id, .{}) orelse unreachable;
+            const slot = self.getContainerById(id, .{}) orelse unreachable;
+            return &self.containers[slot];
         }
 
         pub fn bringToFront(self: *Self, cnt: *Container) void {
@@ -357,35 +358,23 @@ pub fn Context(comptime config: Config) type {
             cnt.zindex = self.last_zindex;
         }
 
-        fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?*Container {
+        fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?util.PoolSlot {
             // Try to get existing container from pool
             if (self.container_pool.getSlot(id)) |index| {
                 if (self.containers[index].open or !opt.closed) {
                     // TODO (Matteo): Why update only in this case?
                     self.container_pool.updateSlot(index, self.frame);
                 }
-                return &self.containers[index];
+                return index;
             }
 
             if (opt.closed) return null;
 
             // Container not found in pool, init a new one
             const index = self.container_pool.initSlot(id, self.frame);
-            const cnt = &self.containers[index];
-            cnt.* = Container{ .open = true };
-            self.bringToFront(cnt);
-            return cnt;
-        }
-
-        fn popContainer(self: *Self) void {
-            const layout = self.peekLayout();
-            var cnt = self.getCurrentContainer();
-
-            cnt.content_size = layout.max.sub(layout.body.pt);
-
-            _ = self.container_stack.pop();
-            _ = self.layout_stack.pop();
-            self.popId();
+            self.containers[index] = Container{ .open = true };
+            self.bringToFront(&self.containers[index]);
+            return index;
         }
 
         fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
@@ -478,35 +467,6 @@ pub fn Context(comptime config: Config) type {
             } else {
                 cnt.scroll.x = 0;
             }
-        }
-
-        fn beginRootContainer(self: *Self, cnt: *Container) void {
-            self.container_stack.push(cnt);
-            self.root_list.push(cnt);
-            // Push head command
-            cnt.head = self.command_list.pushJump();
-            // Set as hover root if the mouse is overlapping this container and it has a
-            // higher zindex than the current hover root
-            if (cnt.rect.overlaps(self.input.mouse_pos) and
-                (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
-            {
-                self.next_hover_root = cnt;
-            }
-            // Clipping is reset here in case a root-container is made within
-            // another root-containers's begin/end block; this prevents the inner
-            // root-container being clipped to the outer
-            self.clip_stack.push(Rect.unclipped);
-        }
-
-        fn endRootContainer(self: *Self) void {
-            var cnt = self.getCurrentContainer();
-            // Push tail 'goto' jump command and set head 'skip' command. the final steps
-            // on initing these are done in 'endFrame'
-            cnt.tail = self.command_list.pushJump();
-            self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
-            // Pop base clip rect and container
-            self.popClipRect();
-            self.popContainer();
         }
 
         //=== Layout management ===//
@@ -736,10 +696,13 @@ pub fn Context(comptime config: Config) type {
 
             while (i > 0) {
                 i -= 1;
-                if (self.container_stack.items[i] == self.hover_root) return true;
+
+                const slot = self.container_stack.items[i];
+                if (self.containers[slot] == self.hover_root) return true;
+
                 // Only root containers have their `head` field set; stop searching
                 // if we've reached the current root container
-                if (self.container_stack.items[i].head != 0) break;
+                if (self.containers[slot].head != 0) break;
             }
 
             return false;
@@ -1166,14 +1129,33 @@ pub fn Context(comptime config: Config) type {
             opts: OptionFlags,
         ) Result {
             const id = self.getId(title);
-            var cnt = self.getContainerById(id, opts) orelse return Result{};
+            const slot = self.getContainerById(id, opts) orelse return Result{};
+            var cnt = &self.containers[slot];
             if (!cnt.open) return Result{};
 
             // Pushing explicitly because the function can return early
             self.id_stack.push(id);
 
             if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
-            self.beginRootContainer(cnt);
+
+            // Push root container
+            self.container_stack.push(slot);
+            self.root_list.push(cnt);
+
+            // Push head command
+            cnt.head = self.command_list.pushJump();
+            // Set as hover root if the mouse is overlapping this container and it has a
+            // higher zindex than the current hover root
+            if (cnt.rect.overlaps(self.input.mouse_pos) and
+                (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
+            {
+                self.next_hover_root = cnt;
+            }
+
+            // Clipping is reset here in case a root-container is made within
+            // another root-containers's begin/end block; this prevents the inner
+            // root-container being clipped to the outer
+            self.clip_stack.push(Rect.unclipped);
 
             // Draw frame
             if (opts.frame) self.drawFrame(cnt.rect, .WindowBg);
@@ -1252,7 +1234,22 @@ pub fn Context(comptime config: Config) type {
 
         pub fn endWindow(self: *Self) void {
             self.popClipRect();
-            self.endRootContainer();
+
+            const slot = self.container_stack.pop();
+            var cnt = &self.containers[slot];
+
+            // Push tail 'goto' jump command and set head 'skip' command. the final steps
+            // on initing these are done in 'endFrame'
+            cnt.tail = self.command_list.pushJump();
+            self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
+
+            // Pop container
+            const layout = self.layout_stack.pop();
+            cnt.content_size = layout.max.sub(layout.body.pt);
+            self.popId();
+
+            // Pop "unclipped" rect
+            self.popClipRect();
         }
 
         pub fn openPopup(self: *Self, name: []const u8) void {
@@ -1285,19 +1282,24 @@ pub fn Context(comptime config: Config) type {
             const id = self.getId(name);
             self.id_stack.push(id);
 
-            var cnt = self.getContainerById(id, opts) orelse unreachable;
+            const slot = self.getContainerById(id, opts) orelse unreachable;
+            var cnt = &self.containers[slot];
             cnt.rect = self.layoutNext();
 
             if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
 
-            self.container_stack.push(cnt);
+            self.container_stack.push(slot);
             self.pushContainerBody(cnt, cnt.rect, opts);
             self.pushClipRect(cnt.body);
         }
 
         pub fn endPanel(self: *Self) void {
             self.popClipRect();
-            self.popContainer();
+            // Pop container
+            const layout = self.layout_stack.pop();
+            const slot = self.container_stack.pop();
+            self.containers[slot].content_size = layout.max.sub(layout.body.pt);
+            self.popId();
         }
 
         //=== Drawing ===//
