@@ -32,23 +32,24 @@ pub const Id = u32;
 pub const Command = command.Command;
 pub const CommandType = command.CommandType;
 pub const CommandList = command.CommandList;
+pub const CommandHandle = command.CommandHandle;
 
 /// Compile-time configuration parameters
 pub const Config = struct {
-    command_list_size: usize = (256 * 1024),
-    rootlist_size: usize = 32,
-    container_stack_size: usize = 32,
-    clip_stack_size: usize = 32,
-    id_stack_size: usize = 32,
-    layout_stack_size: usize = 16,
-    container_pool_size: usize = 48,
-    treenode_pool_size: usize = 48,
-    max_widths: usize = 16,
+    command_list_size: u32 = (256 * 1024),
+    rootlist_size: u16 = 32,
+    container_stack_size: u16 = 32,
+    clip_stack_size: u16 = 32,
+    id_stack_size: u16 = 32,
+    layout_stack_size: u16 = 16,
+    container_pool_size: u16 = 48,
+    treenode_pool_size: u16 = 48,
+    max_widths: u16 = 16,
     real: type = f32,
     real_fmt: []const u8 = "{d:.3}",
     slider_fmt: []const u8 = "{d:.2}",
-    fmt_buf_size: usize = 127,
-    input_buf_size: usize = 32,
+    fmt_buf_size: u16 = 127,
+    input_buf_size: u32 = 32,
 };
 
 pub const Clip = enum(u2) {
@@ -74,6 +75,7 @@ pub const ColorId = enum(u4) {
     ScrollThumb,
 };
 
+// TODO (Matteo): Shrink to 16 bits? Demo rendering code depends on 32 at the moment
 pub const Icon = enum(u32) {
     None,
     Close,
@@ -147,8 +149,8 @@ pub const ControlState = packed struct {
 };
 
 pub const Container = struct {
-    head: usize = 0,
-    tail: usize = 0,
+    head: CommandHandle = 0,
+    tail: CommandHandle = 0,
     rect: Rect = .{},
     body: Rect = .{},
     content_size: Vec2 = .{},
@@ -303,6 +305,10 @@ pub const Input = struct {
 
 pub fn Context(comptime config: Config) type {
     return struct {
+        comptime {
+            assert(config.max_widths <= std.math.maxInt(u32));
+        }
+
         //=== Inner types ===//
 
         // NOTE (Matteo): Declare here because are configurable
@@ -320,8 +326,8 @@ pub fn Context(comptime config: Config) type {
             size: Vec2 = .{},
             max: Vec2 = .{},
             widths: [config.max_widths]i32 = [_]i32{0} ** config.max_widths,
-            items: usize = 0,
-            item_index: usize = 0,
+            items: u32 = 0,
+            item_index: u32 = 0,
             next_row: i32 = 0,
             next_type: LayoutType = .None,
             indent: i32 = 0,
@@ -475,7 +481,7 @@ pub fn Context(comptime config: Config) type {
                 else
                     self.command_list.get(self.root_list.items[i - 1].tail);
 
-                cmd.jump.dst = cnt.head + @sizeOf(command.JumpCommand);
+                cmd.jump.dst = cnt.head + self.command_list.get(cnt.head).base.size;
 
                 // Make the last container's tail jump to the end of command list
                 if (i == n - 1) {
@@ -693,7 +699,7 @@ pub fn Context(comptime config: Config) type {
 
             assert(widths.len <= layout.widths.len);
 
-            comptime var items: usize = 0;
+            comptime var items: u32 = 0;
             inline while (items < widths.len) : (items += 1) {
                 layout.widths[items] = widths[items];
             }

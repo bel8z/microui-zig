@@ -16,7 +16,7 @@ const Color = mu.Color;
 const Icon = mu.Icon;
 const Font = mu.Font;
 
-pub const CommandType = enum(u32) {
+pub const CommandType = enum(u16) {
     None,
     Jump,
     Clip,
@@ -30,8 +30,8 @@ pub const CommandType = enum(u32) {
 // The current solution works pretty well in C but seems a bit foreign in Zig;
 // furthermore, I'd like to provide easy extension with user-defined commands.
 
-pub const BaseCommand = extern struct { type: CommandType, size: usize };
-pub const JumpCommand = extern struct { base: BaseCommand, dst: usize };
+pub const BaseCommand = extern struct { type: CommandType, size: CommandHandle };
+pub const JumpCommand = extern struct { base: BaseCommand, dst: CommandHandle };
 pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
 pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
 pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
@@ -41,7 +41,7 @@ pub const TextCommand = extern struct {
     font: *const Font,
     pos: Vec2,
     color: Color,
-    len: usize,
+    len: CommandHandle,
 
     pub fn read(cmd: *const TextCommand) []const u8 {
         const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
@@ -60,17 +60,19 @@ pub const Command = extern union {
     icon: IconCommand,
 };
 
-pub fn CommandList(comptime N: usize) type {
+pub const CommandHandle = u32;
+
+pub fn CommandList(comptime N: u32) type {
     return struct {
         buffer: [N]u8 align(alignment) = undefined,
-        tail: usize = 0,
+        tail: CommandHandle = 0,
 
         const alignment = @alignOf(Command);
         const Self = @This();
 
         const Iterator = struct {
             list: *Self,
-            pos: usize = 0,
+            pos: CommandHandle = 0,
 
             pub fn next(self: *Iterator) ?*const Command {
                 while (self.pos != self.list.tail) {
@@ -92,7 +94,7 @@ pub fn CommandList(comptime N: usize) type {
             self.tail = 0;
         }
 
-        pub inline fn get(self: *Self, pos: usize) *Command {
+        pub inline fn get(self: *Self, pos: CommandHandle) *Command {
             return @ptrCast(*Command, @alignCast(alignment, &self.buffer[pos]));
         }
 
@@ -100,7 +102,7 @@ pub fn CommandList(comptime N: usize) type {
             return Iterator{ .list = self };
         }
 
-        pub fn pushJump(self: *Self) usize {
+        pub fn pushJump(self: *Self) CommandHandle {
             const pos = self.pushCmd(.Jump);
             self.get(pos).jump.dst = 0;
             return pos;
@@ -134,6 +136,8 @@ pub fn CommandList(comptime N: usize) type {
             color: Color,
             font: *Font,
         ) void {
+            assert(str.len <= std.math.maxInt(CommandHandle));
+
             const header_size = @sizeOf(TextCommand);
             const full_size = header_size + str.len;
             const offset = self.pushSize(.Text, full_size);
@@ -142,7 +146,7 @@ pub fn CommandList(comptime N: usize) type {
             cmd.text.pos = pos;
             cmd.text.font = font;
             cmd.text.color = color;
-            cmd.text.len = str.len;
+            cmd.text.len = @intCast(CommandHandle, str.len);
 
             var buf = self.buffer[offset + header_size .. offset + full_size];
 
@@ -151,7 +155,7 @@ pub fn CommandList(comptime N: usize) type {
             std.mem.copy(u8, buf, str);
         }
 
-        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) usize {
+        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) CommandHandle {
             const cmd_name = @tagName(cmd_type);
 
             const cmd_struct = switch (cmd_type) {
@@ -166,12 +170,17 @@ pub fn CommandList(comptime N: usize) type {
             return self.pushSize(cmd_type, @sizeOf(cmd_struct));
         }
 
-        pub fn pushSize(self: *Self, cmd_type: CommandType, size: usize) usize {
+        pub fn pushSize(self: *Self, cmd_type: CommandType, size: usize) CommandHandle {
             assert(size < self.buffer.len);
             assert(self.tail < self.buffer.len - size);
 
             const curr_pos = self.tail;
-            self.tail = std.mem.alignForward(curr_pos + size, alignment);
+            assert(std.mem.isAligned(curr_pos, alignment));
+
+            const next_tail = std.mem.alignForward(curr_pos + size, alignment);
+            assert(next_tail <= self.buffer.len);
+
+            self.tail = @intCast(CommandHandle, next_tail);
 
             var cmd = self.get(curr_pos);
             cmd.base.type = cmd_type;

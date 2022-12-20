@@ -14,10 +14,10 @@ const Id = mu.Id;
 
 //============//
 
-pub fn Stack(comptime T: type, comptime N: usize) type {
+pub fn Stack(comptime T: type, comptime N: u32) type {
     return struct {
         items: [N]T = undefined,
-        idx: usize = 0,
+        idx: u32 = 0,
 
         const Self = @This();
 
@@ -72,13 +72,13 @@ const PoolItem = struct { id: Id = 0, last_update: u32 = 0 };
 // can be stored - this does not happen if the expected usage, which is to always
 // call 'get' before 'init', is followed, but this policy is not enforced in anyway.
 
-pub fn Pool(comptime N: usize) type {
+pub fn Pool(comptime N: u32) type {
     return struct {
         items: [N]PoolItem = [_]PoolItem{.{}} ** N,
 
         const Self = @This();
 
-        pub fn init(self: *Self, id: Id, curr_frame: u32) usize {
+        pub fn init(self: *Self, id: Id, curr_frame: u32) u32 {
             assert(id != 0);
 
             var slot = N;
@@ -87,7 +87,7 @@ pub fn Pool(comptime N: usize) type {
                 // First frame, find first free slot
                 for (self.items) |item, index| {
                     if (item.id == 0) {
-                        slot = index;
+                        slot = @intCast(u32, index);
                         break;
                     }
                 }
@@ -98,7 +98,7 @@ pub fn Pool(comptime N: usize) type {
                 for (self.items) |item, index| {
                     if (item.last_update < frame) {
                         frame = item.last_update;
-                        slot = index;
+                        slot = @intCast(u32, index);
                     }
                 }
             }
@@ -111,15 +111,15 @@ pub fn Pool(comptime N: usize) type {
             return slot;
         }
 
-        pub fn get(self: *Self, id: Id) ?usize {
+        pub fn get(self: *Self, id: Id) ?u32 {
             for (self.items) |item, index| {
-                if (item.id == id) return index;
+                if (item.id == id) return @intCast(u32, index);
             }
 
             return null;
         }
 
-        pub fn update(self: *Self, index: usize, curr_frame: u32) void {
+        pub fn update(self: *Self, index: u32, curr_frame: u32) void {
             self.items[index].last_update = curr_frame;
         }
     };
