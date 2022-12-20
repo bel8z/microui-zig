@@ -248,10 +248,10 @@ pub fn Context(comptime config: Config) type {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             // Check stacks
-            assert(self.container_stack.idx == 0);
-            assert(self.clip_stack.idx == 0);
-            assert(self.id_stack.idx == 0);
-            assert(self.layout_stack.idx == 0);
+            assert(self.container_stack.isEmpty());
+            assert(self.clip_stack.isEmpty());
+            assert(self.id_stack.isEmpty());
+            assert(self.layout_stack.isEmpty());
 
             self.command_list.clear();
             self.root_list.clear();
@@ -271,11 +271,12 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn endFrame(self: *Self) void {
-            // Check stacks
-            assert(self.container_stack.idx == 0);
-            assert(self.clip_stack.idx == 0);
-            assert(self.id_stack.idx == 0);
-            assert(self.layout_stack.idx == 0);
+            // Check stacks - assertion are fine here since we are checking
+            // for internal consistency and not an user error
+            assert(self.container_stack.isEmpty());
+            assert(self.clip_stack.isEmpty());
+            assert(self.id_stack.isEmpty());
+            assert(self.layout_stack.isEmpty());
 
             // Handle scroll target
             if (self.scroll_target) |tgt| {
@@ -333,11 +334,11 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn pushId(self: *Self, data: anytype) void {
-            self.id_stack.push(self.getId(data));
+            self.id_stack.push(self.getId(data)) catch unreachable;
         }
 
         pub fn popId(self: *Self) void {
-            _ = self.id_stack.pop();
+            _ = self.id_stack.pop() catch unreachable;
         }
 
         //=== Container management ===//
@@ -390,7 +391,10 @@ pub fn Context(comptime config: Config) type {
                 self.popClipRect();
             }
 
-            self.pushLayout(cnt.body.expand(-self.style.padding), cnt.scroll);
+            self.pushLayout(
+                cnt.body.expand(-self.style.padding),
+                cnt.scroll,
+            ) catch unreachable;
         }
 
         fn scrollbars(self: *Self, cnt: *Container, cs: Vec2) void {
@@ -472,11 +476,11 @@ pub fn Context(comptime config: Config) type {
         //=== Layout management ===//
 
         pub fn layoutBeginColumn(self: *Self) void {
-            self.pushLayout(self.layoutNext(), .{});
+            self.pushLayout(self.layoutNext(), .{}) catch unreachable;
         }
 
         pub fn layoutEndColumn(self: *Self) void {
-            const src = self.layout_stack.pop();
+            const src = self.layout_stack.pop() catch unreachable;
             var dst = self.peekLayout();
 
             // Inherit position/next_row/max from child layout if they are greater
@@ -576,11 +580,11 @@ pub fn Context(comptime config: Config) type {
             return res;
         }
 
-        fn pushLayout(self: *Self, body: Rect, scroll: Vec2) void {
+        fn pushLayout(self: *Self, body: Rect, scroll: Vec2) !void {
             const min = std.math.minInt(i32);
             comptime assert(min < 0);
 
-            self.layout_stack.push(Layout{
+            try self.layout_stack.push(Layout{
                 .body = Rect{ .pt = body.pt.sub(scroll), .sz = body.sz },
                 .max = Vec2{ .x = min, .y = min },
             });
@@ -599,11 +603,11 @@ pub fn Context(comptime config: Config) type {
         pub fn pushClipRect(self: *Self, rect: Rect) void {
             const last = self.peekClipRect();
             const clip = last.intersect(rect);
-            self.clip_stack.push(clip);
+            self.clip_stack.push(clip) catch unreachable;
         }
 
         pub fn popClipRect(self: *Self) void {
-            _ = self.clip_stack.pop();
+            _ = self.clip_stack.pop() catch unreachable;
         }
 
         pub fn peekClipRect(self: *Self) *const Rect {
@@ -1059,7 +1063,7 @@ pub fn Context(comptime config: Config) type {
             const res = self.headerInternal(str, true, opts);
             if (res.active) {
                 self.peekLayout().indent += self.style.indent;
-                self.id_stack.push(self.last_id);
+                self.id_stack.push(self.last_id) catch unreachable;
             }
             return res;
         }
@@ -1134,13 +1138,13 @@ pub fn Context(comptime config: Config) type {
             if (!cnt.open) return Result{};
 
             // Pushing explicitly because the function can return early
-            self.id_stack.push(id);
+            self.id_stack.push(id) catch unreachable;
 
             if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
 
             // Push root container
-            self.container_stack.push(slot);
-            self.root_list.push(cnt);
+            self.container_stack.push(slot) catch unreachable;
+            self.root_list.push(cnt) catch unreachable;
 
             // Push head command
             cnt.head = self.command_list.pushJump();
@@ -1155,7 +1159,7 @@ pub fn Context(comptime config: Config) type {
             // Clipping is reset here in case a root-container is made within
             // another root-containers's begin/end block; this prevents the inner
             // root-container being clipped to the outer
-            self.clip_stack.push(Rect.unclipped);
+            self.clip_stack.push(Rect.unclipped) catch unreachable;
 
             // Draw frame
             if (opts.frame) self.drawFrame(cnt.rect, .WindowBg);
@@ -1235,7 +1239,7 @@ pub fn Context(comptime config: Config) type {
         pub fn endWindow(self: *Self) void {
             self.popClipRect();
 
-            const slot = self.container_stack.pop();
+            const slot = self.container_stack.pop() catch unreachable;
             var cnt = &self.containers[slot];
 
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
@@ -1244,7 +1248,7 @@ pub fn Context(comptime config: Config) type {
             self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
 
             // Pop container
-            const layout = self.layout_stack.pop();
+            const layout = self.layout_stack.pop() catch unreachable;
             cnt.content_size = layout.max.sub(layout.body.pt);
             self.popId();
 
@@ -1280,7 +1284,7 @@ pub fn Context(comptime config: Config) type {
 
         pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) void {
             const id = self.getId(name);
-            self.id_stack.push(id);
+            self.id_stack.push(id) catch unreachable;
 
             const slot = self.getContainerById(id, opts) orelse unreachable;
             var cnt = &self.containers[slot];
@@ -1288,7 +1292,7 @@ pub fn Context(comptime config: Config) type {
 
             if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
 
-            self.container_stack.push(slot);
+            self.container_stack.push(slot) catch unreachable;
             self.pushContainerBody(cnt, cnt.rect, opts);
             self.pushClipRect(cnt.body);
         }
@@ -1296,8 +1300,8 @@ pub fn Context(comptime config: Config) type {
         pub fn endPanel(self: *Self) void {
             self.popClipRect();
             // Pop container
-            const layout = self.layout_stack.pop();
-            const slot = self.container_stack.pop();
+            const layout = self.layout_stack.pop() catch unreachable;
+            const slot = self.container_stack.pop() catch unreachable;
             self.containers[slot].content_size = layout.max.sub(layout.body.pt);
             self.popId();
         }

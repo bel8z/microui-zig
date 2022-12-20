@@ -21,23 +21,27 @@ pub fn Stack(comptime T: type, comptime N: u32) type {
 
         const Self = @This();
 
+        pub inline fn isEmpty(self: *const Self) bool {
+            return self.idx == 0;
+        }
+
         pub fn clear(self: *Self) void {
             self.idx = 0;
         }
 
-        pub fn push(self: *Self, item: T) void {
-            assert(self.idx < self.items.len);
+        pub fn push(self: *Self, item: T) !void {
+            if (self.idx == self.items.len) return error.StackFull;
             self.items[self.idx] = item;
             self.idx += 1;
         }
 
-        pub fn pop(self: *Self) T {
-            assert(self.idx > 0);
+        pub fn pop(self: *Self) !T {
+            if (self.idx == 0) return error.StackEmpty;
             self.idx -= 1;
             return self.items[self.idx];
         }
 
-        pub fn peek(self: *Self) ?*T {
+        pub inline fn peek(self: *Self) ?*T {
             return if (self.idx == 0) null else &self.items[self.idx - 1];
         }
     };
