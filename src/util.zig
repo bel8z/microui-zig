@@ -66,19 +66,21 @@ test "Stack" {
 
 //============//
 
-const PoolItem = struct { id: Id = 0, last_update: u32 = 0 };
-
 // TODO (Matteo): API review. At the moment multiple elements with the same ID
 // can be stored - this does not happen if the expected usage, which is to always
 // call 'get' before 'init', is followed, but this policy is not enforced in anyway.
 
+pub const PoolSlot = u32;
+
 pub fn Pool(comptime N: u32) type {
     return struct {
-        items: [N]PoolItem = [_]PoolItem{.{}} ** N,
+        items: [N]Item = [_]Item{.{}} ** N,
+
+        const Item = struct { id: Id = 0, last_update: u32 = 0 };
 
         const Self = @This();
 
-        pub fn init(self: *Self, id: Id, curr_frame: u32) u32 {
+        pub fn initSlot(self: *Self, id: Id, curr_frame: u32) PoolSlot {
             assert(id != 0);
 
             var slot = N;
@@ -87,7 +89,7 @@ pub fn Pool(comptime N: u32) type {
                 // First frame, find first free slot
                 for (self.items) |item, index| {
                     if (item.id == 0) {
-                        slot = @intCast(u32, index);
+                        slot = @intCast(PoolSlot, index);
                         break;
                     }
                 }
@@ -98,7 +100,7 @@ pub fn Pool(comptime N: u32) type {
                 for (self.items) |item, index| {
                     if (item.last_update < frame) {
                         frame = item.last_update;
-                        slot = @intCast(u32, index);
+                        slot = @intCast(PoolSlot, index);
                     }
                 }
             }
@@ -111,16 +113,22 @@ pub fn Pool(comptime N: u32) type {
             return slot;
         }
 
-        pub fn get(self: *Self, id: Id) ?u32 {
+        pub fn getSlot(self: *Self, id: Id) ?PoolSlot {
             for (self.items) |item, index| {
-                if (item.id == id) return @intCast(u32, index);
+                if (item.id == id) return @intCast(PoolSlot, index);
             }
 
             return null;
         }
 
-        pub fn update(self: *Self, index: u32, curr_frame: u32) void {
+        pub fn updateSlot(self: *Self, index: PoolSlot, curr_frame: u32) void {
+            assert(index < self.items.len);
             self.items[index].last_update = curr_frame;
+        }
+
+        pub fn freeSlot(self: *Self, index: PoolSlot) void {
+            assert(index < self.items.len);
+            self.items[index] = .{};
         }
     };
 }
@@ -130,21 +138,21 @@ test "Pool" {
 
     var p = Pool(5){};
 
-    try expect(p.get(1) == null);
+    try expect(p.getSlot(1) == null);
 
-    try expect(p.init(1, 0) == 0);
-    try expect(p.init(2, 0) == 1);
+    try expect(p.initSlot(1, 0) == 0);
+    try expect(p.initSlot(2, 0) == 1);
 
-    try expect(p.get(1).? == 0);
-    try expect(p.get(2).? == 1);
+    try expect(p.getSlot(1).? == 0);
+    try expect(p.getSlot(2).? == 1);
 
-    try expect(p.init(3, 5) == 0);
-    try expect(p.get(3).? == 0);
+    try expect(p.initSlot(3, 5) == 0);
+    try expect(p.getSlot(3).? == 0);
 
-    p.update(0, 5);
+    p.updateSlot(0, 5);
 
-    try expect(p.init(4, 5) == 1);
-    try expect(p.get(4).? == 1);
+    try expect(p.initSlot(4, 5) == 1);
+    try expect(p.getSlot(4).? == 1);
 }
 
 //============//

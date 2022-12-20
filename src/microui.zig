@@ -525,10 +525,10 @@ pub fn Context(comptime config: Config) type {
 
         fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?*Container {
             // Try to get existing container from pool
-            if (self.container_pool.get(id)) |index| {
+            if (self.container_pool.getSlot(id)) |index| {
                 if (self.containers[index].open or !opt.closed) {
                     // TODO (Matteo): Why update only in this case?
-                    self.container_pool.update(index, self.frame);
+                    self.container_pool.updateSlot(index, self.frame);
                 }
                 return &self.containers[index];
             }
@@ -536,7 +536,7 @@ pub fn Context(comptime config: Config) type {
             if (opt.closed) return null;
 
             // Container not found in pool, init a new one
-            const index = self.container_pool.init(id, self.frame);
+            const index = self.container_pool.initSlot(id, self.frame);
             const cnt = &self.containers[index];
             cnt.* = Container{ .open = true };
             self.bringToFront(cnt);
@@ -1279,7 +1279,7 @@ pub fn Context(comptime config: Config) type {
             opts: OptionFlags,
         ) Result {
             const id = self.getId(str);
-            const pool_index = self.treenode_pool.get(id);
+            const pool_index = self.treenode_pool.getSlot(id);
             const was_active = (pool_index != null);
             const expanded = opts.expanded != was_active; // opts.expanded XOR was_active
 
@@ -1295,12 +1295,12 @@ pub fn Context(comptime config: Config) type {
             // Update pool ref
             if (pool_index) |index| {
                 if (is_active) {
-                    self.treenode_pool.update(index, self.frame);
-                } else { // TODO (Matteo): Better clearing
-                    self.treenode_pool.items[index] = .{};
+                    self.treenode_pool.updateSlot(index, self.frame);
+                } else {
+                    self.treenode_pool.freeSlot(index);
                 }
             } else if (is_active) {
-                _ = self.treenode_pool.init(id, self.frame);
+                _ = self.treenode_pool.initSlot(id, self.frame);
             }
 
             // Draw
