@@ -327,11 +327,6 @@ pub fn Context(comptime config: Config) type {
             indent: i32 = 0,
         };
 
-        const NumberEdit = struct {
-            id: Id = 0,
-            buf: TextBuffer,
-        };
-
         const Self = @This();
 
         const scratch_size = config.input_buf_size + config.fmt_buf_size;
@@ -355,7 +350,8 @@ pub fn Context(comptime config: Config) type {
         hover_root: ?*Container = null,
         next_hover_root: ?*Container = null,
         scroll_target: ?*Container = null,
-        number_edit: NumberEdit,
+        num_edit_id: Id = 0,
+        num_edit_buf: TextBuffer,
 
         // stacks
         command_list: CommandList(config.command_list_size) = .{},
@@ -388,12 +384,12 @@ pub fn Context(comptime config: Config) type {
             self.* = Self{
                 ._style = Style{ .font = font },
                 .init_code = 0x1DEA,
-                .number_edit = .{
-                    .buf = TextBuffer.fromSlice(self.scratch_buf[config.input_buf_size..]),
-                },
+                .num_edit_buf = TextBuffer.fromSlice(
+                    self.scratch_buf[config.input_buf_size..],
+                ),
             };
 
-            assert(self.number_edit.buf.cap == config.fmt_buf_size);
+            assert(self.num_edit_buf.cap == config.fmt_buf_size);
 
             self.style = &self._style;
 
@@ -569,6 +565,8 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn scrollbars(self: *Self, cnt: *Container, cs: Vec2) void {
+            // TODO (Matteo): Compress code a bit?
+
             const sz = self.style.scrollbar_size;
 
             if (cs.y > cnt.body.sz.y) cnt.body.sz.x -= sz;
@@ -883,11 +881,6 @@ pub fn Context(comptime config: Config) type {
                 }
             }
 
-            // DEBUG (Matteo): Show last focused item
-            // if (state.focused) {
-            //     self.drawBox(rect.expand(2), Color{ .r = 255, .b = 255, .a = 255 });
-            // }
-
             return state;
         }
 
@@ -1118,15 +1111,15 @@ pub fn Context(comptime config: Config) type {
         ) Result {
             const id = self.getId(value);
             const base = self.layoutNext();
-            const state = self.updateControl(id, base, opts);
+            const last = value.*;
+            var v = last;
 
             // Handle text input mode
-            if (self.numberTextbox(value, base, id, state)) return Result{};
+            if (self.numberTextbox(fmt, &v, base, id)) return Result{};
 
             // Handle normal mode
-            const last = value.*;
+            const state = self.updateControl(id, base, opts);
             const range = high - low;
-            var v = last;
 
             // Handle input
             const clicked = (self.input.mouse_down.left or
@@ -1221,32 +1214,35 @@ pub fn Context(comptime config: Config) type {
 
         fn numberTextbox(
             self: *Self,
+            comptime fmt: []const u8,
             value: *Real,
-            r: Rect,
+            rect: Rect,
             id: Id,
-            state: ControlState,
+            // state: ControlState,
         ) bool {
             // TODO (Matteo): Improve NumberEdit API?
 
             if (self.input.mouse_pressed.left and
                 self.input.key_down.shift and
-                state.hovered)
+                self.hover == id)
             {
-                self.number_edit.id = id;
-                _ = self.number_edit.buf.print(config.real_fmt, .{value.*});
+                self.num_edit_id = id;
+                _ = self.num_edit_buf.print(fmt, .{value.*});
             }
 
-            if (self.number_edit.id == id) {
-                const res = self.textboxRaw(&self.number_edit.buf, id, r, .{});
+            if (self.num_edit_id == id) {
+                const res = self.textboxRaw(&self.num_edit_buf, id, rect, .{});
 
-                // Signal if the input is still in progress
-                if (!res.submit and state.focused) return true;
+                if (res.submit or self.curr_focus != id) {
+                    self.num_edit_id = 0;
 
-                self.number_edit.id = 0;
-
-                if (std.fmt.parseFloat(Real, self.number_edit.buf.text)) |x| {
-                    value.* = x;
-                } else |_| {}
+                    if (std.fmt.parseFloat(Real, self.num_edit_buf.text)) |x| {
+                        value.* = x;
+                    } else |_| {}
+                } else {
+                    // Signal that input is still in progress
+                    return true;
+                }
             }
 
             return false;
