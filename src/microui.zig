@@ -378,7 +378,7 @@ pub fn Context(comptime config: Config) type {
             return index;
         }
 
-        fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) void {
+        fn pushContainerBody(self: *Self, cnt: *Container, body: Rect, opt: OptionFlags) !void {
             cnt.body = body;
 
             if (opt.scroll) {
@@ -391,10 +391,7 @@ pub fn Context(comptime config: Config) type {
                 self.popClipRect();
             }
 
-            self.pushLayout(
-                cnt.body.expand(-self.style.padding),
-                cnt.scroll,
-            ) catch unreachable;
+            try self.pushLayout(cnt.body.expand(-self.style.padding), cnt.scroll);
         }
 
         fn scrollbars(self: *Self, cnt: *Container, cs: Vec2) void {
@@ -1137,12 +1134,12 @@ pub fn Context(comptime config: Config) type {
             var cnt = &self.containers[slot];
             if (!cnt.open) return Result{};
 
-            // Pushing explicitly because the function can return early
-            self.id_stack.push(id) catch unreachable;
-
             if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
 
             // Push root container
+            // TODO (Matteo): Handle gracefully by returning Result{} and
+            // pop from affected stacks
+            self.id_stack.push(id) catch unreachable;
             self.container_stack.push(slot) catch unreachable;
             self.root_list.push(cnt) catch unreachable;
 
@@ -1203,7 +1200,7 @@ pub fn Context(comptime config: Config) type {
                 body.sz.y -= title_h;
             }
 
-            self.pushContainerBody(cnt, body, opts);
+            self.pushContainerBody(cnt, body, opts) catch unreachable;
 
             // Do resize handle
             if (opts.resize) {
@@ -1293,7 +1290,7 @@ pub fn Context(comptime config: Config) type {
             if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
 
             self.container_stack.push(slot) catch unreachable;
-            self.pushContainerBody(cnt, cnt.rect, opts);
+            self.pushContainerBody(cnt, cnt.rect, opts) catch unreachable;
             self.pushClipRect(cnt.body);
         }
 

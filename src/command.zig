@@ -102,27 +102,27 @@ pub fn CommandList(comptime N: u32) type {
             return Iterator{ .list = self };
         }
 
-        pub fn pushJump(self: *Self) CommandHandle {
-            const pos = self.pushCmd(.Jump);
+        pub fn pushJump(self: *Self) !CommandHandle {
+            const pos = try self.pushCmd(.Jump);
             self.get(pos).jump.dst = 0;
             return pos;
         }
 
-        pub fn pushClip(self: *Self, rect: Rect) void {
-            const pos = self.pushCmd(.Clip);
+        pub fn pushClip(self: *Self, rect: Rect) !void {
+            const pos = try self.pushCmd(.Clip);
             var cmd = self.get(pos);
             cmd.clip.rect = rect;
         }
 
-        pub fn pushRect(self: *Self, rect: Rect, color: Color) void {
-            const pos = self.pushCmd(.Rect);
+        pub fn pushRect(self: *Self, rect: Rect, color: Color) !void {
+            const pos = try self.pushCmd(.Rect);
             var cmd = self.get(pos);
             cmd.rect.rect = rect;
             cmd.rect.color = color;
         }
 
-        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) void {
-            const pos = self.pushCmd(.Icon);
+        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
+            const pos = try self.pushCmd(.Icon);
             var cmd = self.get(pos);
             cmd.icon.id = id;
             cmd.icon.rect = rect;
@@ -135,12 +135,12 @@ pub fn CommandList(comptime N: u32) type {
             pos: Vec2,
             color: Color,
             font: *Font,
-        ) void {
+        ) !void {
             assert(str.len <= std.math.maxInt(CommandHandle));
 
             const header_size = @sizeOf(TextCommand);
             const full_size = header_size + str.len;
-            const offset = self.pushSize(.Text, full_size);
+            const offset = try self.pushSize(.Text, full_size);
 
             var cmd = self.get(offset);
             cmd.text.pos = pos;
@@ -155,7 +155,7 @@ pub fn CommandList(comptime N: u32) type {
             std.mem.copy(u8, buf, str);
         }
 
-        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) CommandHandle {
+        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) !CommandHandle {
             const cmd_name = @tagName(cmd_type);
 
             const cmd_struct = switch (cmd_type) {
@@ -170,15 +170,15 @@ pub fn CommandList(comptime N: u32) type {
             return self.pushSize(cmd_type, @sizeOf(cmd_struct));
         }
 
-        pub fn pushSize(self: *Self, cmd_type: CommandType, size: usize) CommandHandle {
-            assert(size < self.buffer.len);
-            assert(self.tail < self.buffer.len - size);
+        pub fn pushSize(self: *Self, cmd_type: CommandType, size: usize) !CommandHandle {
+            if (size > self.buffer.len) return error.OutOfMemory;
+            if (self.tail > self.buffer.len - size) return error.OutOfMemory;
 
             const curr_pos = self.tail;
             assert(std.mem.isAligned(curr_pos, alignment));
 
             const next_tail = std.mem.alignForward(curr_pos + size, alignment);
-            assert(next_tail <= self.buffer.len);
+            if (next_tail > self.buffer.len) return error.OutOfMemory;
 
             self.tail = @intCast(CommandHandle, next_tail);
 
