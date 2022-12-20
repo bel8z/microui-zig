@@ -753,7 +753,7 @@ pub fn Context(comptime config: Config) type {
                     if (line_end == str.len or str[line_end] == '\n') break;
                 }
 
-                self.drawText(font, str[line_start..line_end], r.pt, color);
+                self.drawText(font, str[line_start..line_end], r.pt, color) catch unreachable;
                 cursor = line_end + 1;
             }
         }
@@ -782,7 +782,7 @@ pub fn Context(comptime config: Config) type {
 
             // Draw
             self.drawButton(state, rect, opts);
-            if (icon != .None) self.drawIcon(icon, rect, self.getColor(.Text));
+            if (icon != .None) self.drawIcon(icon, rect, self.getColor(.Text)) catch unreachable;
             if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
             // Handle click
@@ -808,7 +808,7 @@ pub fn Context(comptime config: Config) type {
             const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
             self.drawBase(state, box, .{});
 
-            if (checked.*) self.drawIcon(.Check, box, self.getColor(.Text));
+            if (checked.*) self.drawIcon(.Check, box, self.getColor(.Text)) catch unreachable;
 
             self.drawControlText(
                 str,
@@ -878,8 +878,8 @@ pub fn Context(comptime config: Config) type {
 
                 // Active text and cursor
                 const color = self.getColor(.Text);
-                self.drawText(font, buf.text, pos, color);
-                self.drawRect(Rect.init(pos.x + size.x, pos.y, 1, size.y), color);
+                self.drawText(font, buf.text, pos, color) catch unreachable;
+                self.drawRect(Rect.init(pos.x + size.x, pos.y, 1, size.y), color) catch unreachable;
             } else {
                 // Inactive text
                 self.drawControlText(buf.text, rect, .Text, opts);
@@ -1112,7 +1112,7 @@ pub fn Context(comptime config: Config) type {
                 if (expanded) .Expanded else .Collapsed,
                 Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
                 self.getColor(.Text),
-            );
+            ) catch unreachable;
 
             const delta_x = r.sz.y - self.style.padding;
             r.pt.x += delta_x;
@@ -1144,7 +1144,7 @@ pub fn Context(comptime config: Config) type {
             self.root_list.push(cnt) catch unreachable;
 
             // Push head command
-            cnt.head = self.command_list.pushJump();
+            cnt.head = self.command_list.pushJump() catch unreachable;
             // Set as hover root if the mouse is overlapping this container and it has a
             // higher zindex than the current hover root
             if (cnt.rect.overlaps(self.input.mouse_pos) and
@@ -1192,7 +1192,7 @@ pub fn Context(comptime config: Config) type {
                     if (state.focused and self.input.mouse_pressed.left) {
                         cnt.open = false;
                     }
-                    self.drawIcon(.Close, rect, self.getColor(.TitleText));
+                    self.drawIcon(.Close, rect, self.getColor(.TitleText)) catch unreachable;
                 }
 
                 // Remove title from body
@@ -1241,7 +1241,7 @@ pub fn Context(comptime config: Config) type {
 
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
             // on initing these are done in 'endFrame'
-            cnt.tail = self.command_list.pushJump();
+            cnt.tail = self.command_list.pushJump() catch unreachable;
             self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
 
             // Pop container
@@ -1365,7 +1365,7 @@ pub fn Context(comptime config: Config) type {
             }
 
             self.pushClipRect(rect);
-            self.drawText(font, str, pos, self.getColor(color));
+            self.drawText(font, str, pos, self.getColor(color)) catch unreachable;
             self.popClipRect();
         }
 
@@ -1376,15 +1376,17 @@ pub fn Context(comptime config: Config) type {
         }
 
         fn drawDefaultFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+            // TODO (Matteo): Review / improve.
+            // Ignoring OOM here means something will not be drawn
             const color = self.getColor(color_id);
-            self.drawRect(rect, color);
+            self.drawRect(rect, color) catch return;
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
                 else => {
                     const border = self.getColor(.Border);
                     if (border.a != 0) {
-                        self.drawBox(rect.expand(1), border);
+                        self.drawBox(rect.expand(1), border) catch return;
                     }
                 },
             }
@@ -1393,34 +1395,41 @@ pub fn Context(comptime config: Config) type {
         // TODO (Matteo): move the drawing functions on the command list directly?
         // Can help a bit with code organization, since it is the only state touched.
 
-        pub fn drawRect(self: *Self, rect: Rect, color: Color) void {
+        // NOTE (Matteo): Primitive drawing functions may fail in cause the command
+        // list memory is exhausted. We could simply ignore and not draw but propagating
+        // the error is useful to inform higher level decisions
+
+        pub fn drawRect(self: *Self, rect: Rect, color: Color) !void {
             const clipped = self.peekClipRect().intersect(rect);
 
             if (clipped.sz.x > 0 and clipped.sz.y > 0) {
-                self.command_list.pushRect(clipped, color);
+                try self.command_list.pushRect(clipped, color);
             }
         }
 
-        pub fn drawBox(self: *Self, rect: Rect, color: Color) void {
-            self.drawRect(Rect.init(
+        pub fn drawBox(self: *Self, rect: Rect, color: Color) !void {
+            try self.drawRect(Rect.init(
                 rect.pt.x + 1,
                 rect.pt.y,
                 rect.sz.x - 2,
                 1,
             ), color);
-            self.drawRect(Rect.init(
+
+            try self.drawRect(Rect.init(
                 rect.pt.x + 1,
                 rect.pt.y + rect.sz.y - 1,
                 rect.sz.x - 2,
                 1,
             ), color);
-            self.drawRect(Rect.init(
+
+            try self.drawRect(Rect.init(
                 rect.pt.x,
                 rect.pt.y,
                 1,
                 rect.sz.y,
             ), color);
-            self.drawRect(Rect.init(
+
+            try self.drawRect(Rect.init(
                 rect.pt.x + rect.sz.x - 1,
                 rect.pt.y,
                 1,
@@ -1434,34 +1443,33 @@ pub fn Context(comptime config: Config) type {
             str: []const u8,
             pos: Vec2,
             color: Color,
-        ) void {
+        ) !void {
             // Measure and clip
-            const size = font.measure(str);
-            const rect = Rect{ .pt = pos, .sz = size };
+            const rect = Rect{ .pt = pos, .sz = font.measure(str) };
             const clip = self.checkClip(rect);
             switch (clip) {
                 .All => return,
-                .Part => self.command_list.pushClip(self.peekClipRect().*),
+                .Part => try self.command_list.pushClip(self.peekClipRect().*),
                 else => {},
             }
             // Add command
-            self.command_list.pushText(str, pos, color, font);
+            try self.command_list.pushText(str, pos, color, font);
             // Reset clipping if set
-            if (clip != .None) self.command_list.pushClip(Rect.unclipped);
+            if (clip != .None) try self.command_list.pushClip(Rect.unclipped);
         }
 
-        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) void {
+        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
             // Measure and clip
             const clip = self.checkClip(rect);
             switch (clip) {
                 .All => return,
-                .Part => self.command_list.pushClip(self.peekClipRect().*),
+                .Part => try self.command_list.pushClip(self.peekClipRect().*),
                 else => {},
             }
             // Add command
-            self.command_list.pushIcon(id, rect, color);
+            try self.command_list.pushIcon(id, rect, color);
             // Reset clipping if set
-            if (clip != .None) self.command_list.pushClip(Rect.unclipped);
+            if (clip != .None) try self.command_list.pushClip(Rect.unclipped);
         }
 
         //=== Internals ===//
