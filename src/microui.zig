@@ -7,9 +7,7 @@
 //
 
 const std = @import("std");
-const command = @import("command.zig");
 const util = @import("util.zig");
-
 const assert = std.debug.assert;
 
 test "MicroUi" {
@@ -28,29 +26,7 @@ test "MicroUi" {
 }
 
 pub const Id = u32;
-
-pub const Command = command.Command;
-pub const CommandType = command.CommandType;
-pub const CommandList = command.CommandList;
-pub const CommandHandle = command.CommandHandle;
-
-/// Compile-time configuration parameters
-pub const Config = struct {
-    command_list_size: u32 = (256 * 1024),
-    rootlist_size: u16 = 32,
-    container_stack_size: u16 = 32,
-    clip_stack_size: u16 = 32,
-    id_stack_size: u16 = 32,
-    layout_stack_size: u16 = 16,
-    container_pool_size: u16 = 48,
-    treenode_pool_size: u16 = 48,
-    max_widths: u16 = 16,
-    real: type = f32,
-    real_fmt: []const u8 = "{d:.3}",
-    slider_fmt: []const u8 = "{d:.2}",
-    fmt_buf_size: u16 = 127,
-    input_buf_size: u32 = 32,
-};
+pub const command = @import("command.zig");
 
 pub const Clip = enum(u2) {
     None,
@@ -87,24 +63,6 @@ pub const Icon = enum(u32) {
 
 pub const Color = extern struct { r: u8 = 0, g: u8 = 0, b: u8 = 0, a: u8 = 0 };
 
-pub const Font = struct {
-    text_height: i32,
-    text_width: *const fn (ptr: ?*anyopaque, str: []const u8) i32,
-    ptr: ?*anyopaque = null,
-
-    pub fn measure(self: *const Font, str: []const u8) Vec2 {
-        return .{ .x = self.text_width(self.ptr, str), .y = self.text_height };
-    }
-};
-
-pub const Result = packed struct {
-    active: bool = false,
-    submit: bool = false,
-    change: bool = false,
-
-    pub usingnamespace util.BitSet(Result, u3);
-};
-
 pub const OptionFlags = packed struct {
     align_center: bool = false,
     align_right: bool = false,
@@ -123,34 +81,9 @@ pub const OptionFlags = packed struct {
     pub usingnamespace util.BitSet(OptionFlags, u12);
 };
 
-pub const MouseButtons = packed struct {
-    left: bool = false,
-    right: bool = false,
-    middle: bool = false,
-
-    pub usingnamespace util.BitSet(MouseButtons, u3);
-};
-
-pub const Keys = packed struct {
-    shift: bool = false,
-    ctrl: bool = false,
-    alt: bool = false,
-    backspace: bool = false,
-    enter: bool = false,
-
-    pub usingnamespace util.BitSet(Keys, u5);
-};
-
-pub const ControlState = packed struct {
-    hovered: bool = false,
-    focused: bool = false,
-
-    pub usingnamespace util.BitSet(ControlState, u2);
-};
-
 pub const Container = struct {
-    head: CommandHandle = 0,
-    tail: CommandHandle = 0,
+    head: command.CommandHandle = 0,
+    tail: command.CommandHandle = 0,
     rect: Rect = .{},
     body: Rect = .{},
     content_size: Vec2 = .{},
@@ -186,121 +119,22 @@ pub const Style = struct {
     },
 };
 
-pub const TextBuffer = struct {
-    text: []u8 = &[_]u8{},
-    cap: usize = 0,
-
-    pub fn fromSlice(slice: []u8) TextBuffer {
-        return TextBuffer{ .cap = slice.len, .text = slice[0..0] };
-    }
-
-    pub fn clear(self: *TextBuffer) void {
-        self.text.len = 0;
-    }
-
-    pub fn print(self: *TextBuffer, comptime fmt: []const u8, args: anytype) bool {
-        var stream = std.io.fixedBufferStream(self.text.ptr[0..self.cap]);
-        std.fmt.format(stream.writer(), fmt, args) catch return false;
-
-        assert(self.text.ptr == stream.buffer.ptr);
-
-        self.text = stream.getWritten();
-        return true;
-    }
-
-    pub fn append(self: *TextBuffer, str: []const u8) bool {
-        var dst = self.text.ptr[self.text.len..self.cap];
-
-        const count = std.math.min(dst.len, str.len);
-
-        assert(count == str.len);
-
-        if (count > 0) {
-            std.mem.copy(u8, dst[0..count], str[0..count]);
-            self.text.len += count;
-            return true;
-        }
-
-        return false;
-    }
-
-    pub fn deleteLast(self: *TextBuffer) bool {
-        // TODO (Matteo): Use stdlib unicode facilities?
-        if (self.text.len > 0) {
-            // skip utf-8 continuation bytes
-            var cursor = self.text.len - 1;
-            while (cursor > 0 and (self.text[cursor] & 0xc0) == 0x80) {
-                cursor -= 1;
-            }
-            self.text.len = cursor;
-            return true;
-        }
-
-        return false;
-    }
-};
-
-pub const Input = struct {
-    mouse_pos: Vec2 = .{},
-    scroll_delta: Vec2 = .{},
-    mouse_down: MouseButtons = .{},
-    mouse_pressed: MouseButtons = .{},
-    key_down: Keys = .{},
-    key_pressed: Keys = .{},
-    text_buf: TextBuffer,
-
-    pub fn init(text_buffer: []u8) Input {
-        return Input{ .text_buf = TextBuffer.fromSlice(text_buffer) };
-    }
-
-    pub fn clear(self: *Input) void {
-        self.key_pressed = .{};
-        self.mouse_pressed = .{};
-        self.scroll_delta = .{};
-        self.text_buf.clear();
-    }
-
-    pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
-        self.mouse_pos = .{ .x = x, .y = y };
-    }
-
-    pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
-        if (btn.any()) {
-            self.mouseMove(x, y);
-            self.mouse_down = self.mouse_down.unionWith(btn);
-            self.mouse_pressed = self.mouse_pressed.unionWith(btn);
-        }
-    }
-
-    pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
-        if (btn.any()) {
-            self.mouseMove(x, y);
-            self.mouse_down = self.mouse_down.exceptWith(btn);
-        }
-    }
-
-    pub inline fn scroll(self: *Input, x: i32, y: i32) void {
-        self.scroll_delta.x += x;
-        self.scroll_delta.y += y;
-    }
-
-    pub fn keyDown(self: *Input, key: Keys) void {
-        self.key_down = self.key_down.unionWith(key);
-        self.key_pressed = self.key_pressed.unionWith(key);
-    }
-
-    pub fn keyUp(self: *Input, key: Keys) void {
-        self.key_down = self.key_down.exceptWith(key);
-    }
-
-    pub fn text(self: *Input, str: []const u8) void {
-        _ = self.text_buf.append(str);
-    }
-
-    pub fn textZ(self: *Input, str: [*:0]const u8) void {
-        const len = std.mem.len(str);
-        _ = self.text_buf.append(str[0..len]);
-    }
+/// Compile-time configuration parameters
+pub const Config = struct {
+    command_list_size: u32 = (256 * 1024),
+    rootlist_size: u16 = 32,
+    container_stack_size: u16 = 32,
+    clip_stack_size: u16 = 32,
+    id_stack_size: u16 = 32,
+    layout_stack_size: u16 = 16,
+    container_pool_size: u16 = 48,
+    treenode_pool_size: u16 = 48,
+    max_widths: u16 = 16,
+    real: type = f32,
+    real_fmt: []const u8 = "{d:.3}",
+    slider_fmt: []const u8 = "{d:.2}",
+    fmt_buf_size: u16 = 127,
+    input_buf_size: u32 = 32,
 };
 
 pub fn Context(comptime config: Config) type {
@@ -360,7 +194,7 @@ pub fn Context(comptime config: Config) type {
         num_edit_buf: TextBuffer,
 
         // stacks
-        command_list: CommandList(config.command_list_size) = .{},
+        command_list: command.CommandList(config.command_list_size) = .{},
         root_list: util.Stack(*Container, config.rootlist_size) = .{},
         container_stack: util.Stack(*Container, config.container_stack_size) = .{},
         clip_stack: util.Stack(Rect, config.clip_stack_size) = .{},
@@ -661,7 +495,7 @@ pub fn Context(comptime config: Config) type {
             // Clipping is reset here in case a root-container is made within
             // another root-containers's begin/end block; this prevents the inner
             // root-container being clipped to the outer
-            self.clip_stack.push(unclipped_rect);
+            self.clip_stack.push(Rect.unclipped);
         }
 
         fn endRootContainer(self: *Self) void {
@@ -1610,7 +1444,7 @@ pub fn Context(comptime config: Config) type {
             // Add command
             self.command_list.pushText(str, pos, color, font);
             // Reset clipping if set
-            if (clip != .None) self.command_list.pushClip(unclipped_rect);
+            if (clip != .None) self.command_list.pushClip(Rect.unclipped);
         }
 
         pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) void {
@@ -1624,7 +1458,7 @@ pub fn Context(comptime config: Config) type {
             // Add command
             self.command_list.pushIcon(id, rect, color);
             // Reset clipping if set
-            if (clip != .None) self.command_list.pushClip(unclipped_rect);
+            if (clip != .None) self.command_list.pushClip(Rect.unclipped);
         }
 
         //=== Internals ===//
@@ -1665,6 +1499,8 @@ pub const Rect = extern struct {
     pt: Vec2 = .{},
     sz: Vec2 = .{},
 
+    const unclipped = init(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+
     pub fn init(x: i32, y: i32, w: i32, h: i32) Rect {
         return Rect{
             .pt = Vec2{ .x = x, .y = y },
@@ -1700,15 +1536,13 @@ pub const Rect = extern struct {
     }
 };
 
-const unclipped_rect = Rect.init(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
-
 test "Primitives" {
     const expect = std.testing.expect;
 
     var c: Rect = undefined;
 
     const a = Rect.init(0, 0, 2, 3);
-    c = a.intersect(unclipped_rect);
+    c = a.intersect(Rect.unclipped);
     try expect(a.pt.eq(c.pt));
     try expect(a.sz.eq(c.sz));
 
@@ -1753,6 +1587,176 @@ test "Hash" {
     try expect(h1 != h2);
     try expect(h2 != hash(str2, HASH_INITIAL));
 }
+
+//=======================//
+//  Input / interaction  //
+//=======================//
+
+pub const MouseButtons = packed struct {
+    left: bool = false,
+    right: bool = false,
+    middle: bool = false,
+
+    pub usingnamespace util.BitSet(MouseButtons, u3);
+};
+
+pub const Keys = packed struct {
+    shift: bool = false,
+    ctrl: bool = false,
+    alt: bool = false,
+    backspace: bool = false,
+    enter: bool = false,
+
+    pub usingnamespace util.BitSet(Keys, u5);
+};
+
+pub const Input = struct {
+    mouse_pos: Vec2 = .{},
+    scroll_delta: Vec2 = .{},
+    mouse_down: MouseButtons = .{},
+    mouse_pressed: MouseButtons = .{},
+    key_down: Keys = .{},
+    key_pressed: Keys = .{},
+    text_buf: TextBuffer,
+
+    pub fn init(text_buffer: []u8) Input {
+        return Input{ .text_buf = TextBuffer.fromSlice(text_buffer) };
+    }
+
+    pub fn clear(self: *Input) void {
+        self.key_pressed = .{};
+        self.mouse_pressed = .{};
+        self.scroll_delta = .{};
+        self.text_buf.clear();
+    }
+
+    pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
+        self.mouse_pos = .{ .x = x, .y = y };
+    }
+
+    pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+        if (btn.any()) {
+            self.mouseMove(x, y);
+            self.mouse_down = self.mouse_down.unionWith(btn);
+            self.mouse_pressed = self.mouse_pressed.unionWith(btn);
+        }
+    }
+
+    pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+        if (btn.any()) {
+            self.mouseMove(x, y);
+            self.mouse_down = self.mouse_down.exceptWith(btn);
+        }
+    }
+
+    pub inline fn scroll(self: *Input, x: i32, y: i32) void {
+        self.scroll_delta.x += x;
+        self.scroll_delta.y += y;
+    }
+
+    pub fn keyDown(self: *Input, key: Keys) void {
+        self.key_down = self.key_down.unionWith(key);
+        self.key_pressed = self.key_pressed.unionWith(key);
+    }
+
+    pub fn keyUp(self: *Input, key: Keys) void {
+        self.key_down = self.key_down.exceptWith(key);
+    }
+
+    pub fn text(self: *Input, str: []const u8) void {
+        _ = self.text_buf.append(str);
+    }
+
+    pub fn textZ(self: *Input, str: [*:0]const u8) void {
+        const len = std.mem.len(str);
+        _ = self.text_buf.append(str[0..len]);
+    }
+};
+
+pub const ControlState = packed struct {
+    hovered: bool = false,
+    focused: bool = false,
+
+    pub usingnamespace util.BitSet(ControlState, u2);
+};
+
+pub const Result = packed struct {
+    active: bool = false,
+    submit: bool = false,
+    change: bool = false,
+
+    pub usingnamespace util.BitSet(Result, u3);
+};
+
+//=================//
+//  Text handling  //
+//=================//
+
+pub const Font = struct {
+    text_height: i32,
+    text_width: *const fn (ptr: ?*anyopaque, str: []const u8) i32,
+    ptr: ?*anyopaque = null,
+
+    pub fn measure(self: *const Font, str: []const u8) Vec2 {
+        return .{ .x = self.text_width(self.ptr, str), .y = self.text_height };
+    }
+};
+
+pub const TextBuffer = struct {
+    text: []u8 = &[_]u8{},
+    cap: usize = 0,
+
+    pub fn fromSlice(slice: []u8) TextBuffer {
+        return TextBuffer{ .cap = slice.len, .text = slice[0..0] };
+    }
+
+    pub fn clear(self: *TextBuffer) void {
+        self.text.len = 0;
+    }
+
+    pub fn print(self: *TextBuffer, comptime fmt: []const u8, args: anytype) bool {
+        var stream = std.io.fixedBufferStream(self.text.ptr[0..self.cap]);
+        std.fmt.format(stream.writer(), fmt, args) catch return false;
+
+        assert(self.text.ptr == stream.buffer.ptr);
+
+        self.text = stream.getWritten();
+        return true;
+    }
+
+    pub fn append(self: *TextBuffer, str: []const u8) bool {
+        var dst = self.text.ptr[self.text.len..self.cap];
+
+        const count = std.math.min(dst.len, str.len);
+
+        assert(count == str.len);
+
+        if (count > 0) {
+            std.mem.copy(u8, dst[0..count], str[0..count]);
+            self.text.len += count;
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn deleteLast(self: *TextBuffer) bool {
+        // TODO (Matteo): Use stdlib unicode facilities?
+        if (self.text.len > 0) {
+            // skip utf-8 continuation bytes
+            var cursor = self.text.len - 1;
+            while (cursor > 0 and (self.text[cursor] & 0xc0) == 0x80) {
+                cursor -= 1;
+            }
+            self.text.len = cursor;
+            return true;
+        }
+
+        return false;
+    }
+};
+
+//=====================//
 
 //
 // The MIT License (MIT)
