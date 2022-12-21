@@ -1057,17 +1057,27 @@ pub fn Context(comptime config: Config) type {
         }
 
         pub fn beginTreeNode(self: *Self, str: []const u8, opts: OptionFlags) Result {
-            const res = self.headerInternal(str, true, opts);
+            var res = self.headerInternal(str, true, opts);
+
             if (res.active) {
-                self.peekLayout().indent += self.style.indent;
-                self.id_stack.push(self.last_id) catch unreachable;
+                if (self.id_stack.push(self.last_id)) {
+                    self.peekLayout().indent += self.style.indent;
+                } else |_| {
+                    // Behave as if the node is closed so the user won't keep
+                    // pushing stuff (hopefully)
+                    res = Result{};
+                }
             }
+
             return res;
         }
 
         pub fn endTreeNode(self: *Self) void {
-            self.peekLayout().indent -= self.style.indent;
-            self.popId();
+            if (self.id_stack.pop()) |_| {
+                self.peekLayout().indent -= self.style.indent;
+            } else |_| {
+                assert(false);
+            }
         }
 
         fn headerInternal(
@@ -1691,6 +1701,7 @@ pub const ControlState = packed struct {
     pub usingnamespace util.BitSet(ControlState, u2);
 };
 
+// TODO (Matteo): Is as bitset really useful? Would a simple boolean be enough?
 pub const Result = packed struct {
     active: bool = false,
     submit: bool = false,
