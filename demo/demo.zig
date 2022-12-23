@@ -309,7 +309,7 @@ fn testWindow(ctx: *Context) !void {
                 .g = @floatToInt(u8, bg[0]),
                 .b = @floatToInt(u8, bg[2]),
                 .a = 255,
-            });
+            }) catch unreachable;
             var buf: [32]u8 = undefined;
             ctx.drawControlText(
                 try std.fmt.bufPrint(buf[0..], "#{X}{X}{X}", .{
@@ -331,15 +331,18 @@ fn logWindow(ctx: *Context) void {
 
         //  output text panel
         ctx.layoutRow(.{-1}, -25);
-        ctx.beginPanel("Log Output", .{});
-        var panel = ctx.getCurrentContainer();
-        ctx.layoutRow(.{-1}, -1);
 
-        ctx.text(logbuf.getWritten());
-        ctx.endPanel();
-        if (logbuf_updated) {
-            panel.*.scroll.y = panel.*.content_size.y;
-            logbuf_updated = false;
+        if (ctx.beginPanel("Log Output", .{})) {
+            var panel = ctx.getCurrentContainer();
+            ctx.layoutRow(.{-1}, -1);
+
+            ctx.text(logbuf.getWritten());
+            ctx.endPanel();
+
+            if (logbuf_updated) {
+                panel.*.scroll.y = panel.*.content_size.y;
+                logbuf_updated = false;
+            }
         }
 
         // input textbox + submit button
@@ -378,7 +381,7 @@ fn styleWindow(ctx: *Context) void {
             _ = sliderU8(ctx, &color.g, 0, 255);
             _ = sliderU8(ctx, &color.b, 0, 255);
             _ = sliderU8(ctx, &color.a, 0, 255);
-            ctx.drawRect(ctx.layoutNext(), color.*);
+            ctx.drawRect(ctx.layoutNext(), color.*) catch unreachable;
         }
     }
 }

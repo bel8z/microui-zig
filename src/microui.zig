@@ -607,8 +607,9 @@ pub fn Context(comptime config: Config) type {
             _ = self.clip_stack.pop() catch unreachable;
         }
 
-        pub fn peekClipRect(self: *Self) *const Rect {
-            return self.clip_stack.peek() orelse unreachable;
+        pub fn peekClipRect(self: *Self) Rect {
+            const ptr = self.clip_stack.peek() orelse unreachable;
+            return ptr.*;
         }
 
         pub fn checkClip(self: *Self, r: Rect) Clip {
@@ -862,10 +863,8 @@ pub fn Context(comptime config: Config) type {
 
             // Draw
             self.drawBase(state, rect, opts);
-            if (state.focused) {
-                self.pushClipRect(rect);
-                defer self.popClipRect();
 
+            if (state.focused) {
                 const font = self.style.font;
                 const size = font.measure(buf.text);
 
@@ -877,9 +876,13 @@ pub fn Context(comptime config: Config) type {
                 };
 
                 // Active text and cursor
+                const clip = rect.intersect(self.peekClipRect());
                 const color = self.getColor(.Text);
-                self.drawText(font, buf.text, pos, color) catch unreachable;
-                self.drawRect(Rect.init(pos.x + size.x, pos.y, 1, size.y), color) catch unreachable;
+                const cursor = Rect.init(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
+                if (cursor.sz.x > 0 and cursor.sz.y > 0) {
+                    self.command_list.pushRect(cursor, color) catch {};
+                }
+                self.drawTextClipped(font, buf.text, pos, color, clip) catch {};
             } else {
                 // Inactive text
                 self.drawControlText(buf.text, rect, .Text, opts);
@@ -1118,17 +1121,19 @@ pub fn Context(comptime config: Config) type {
                 self.drawButton(state, r, .{});
             }
 
-            self.drawIcon(
+            if (self.drawIcon(
                 if (expanded) .Expanded else .Collapsed,
                 Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
                 self.getColor(.Text),
-            ) catch unreachable;
+            )) {
+                const delta_x = r.sz.y - self.style.padding;
+                r.pt.x += delta_x;
+                r.sz.x -= delta_x;
 
-            const delta_x = r.sz.y - self.style.padding;
-            r.pt.x += delta_x;
-            r.sz.x -= delta_x;
-
-            self.drawControlText(str, r, .Text, .{});
+                self.drawControlText(str, r, .Text, .{});
+            } else |_| {
+                // Skip drawing in case of errors
+            }
 
             return Result{ .active = expanded };
         }
@@ -1289,24 +1294,34 @@ pub fn Context(comptime config: Config) type {
             self.endWindow();
         }
 
-        pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) void {
+        pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) bool {
             const id = self.getId(name);
-            self.id_stack.push(id) catch unreachable;
+            self.id_stack.push(id) catch return false;
 
             const slot = self.getContainerById(id, opts) orelse unreachable;
-            var cnt = &self.containers[slot];
-            cnt.rect = self.layoutNext();
 
-            if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
+            if (self.container_stack.push(slot)) {
+                var cnt = &self.containers[slot];
+                cnt.rect = self.layoutNext();
 
-            self.container_stack.push(slot) catch unreachable;
-            self.pushContainerBody(cnt, cnt.rect, opts) catch unreachable;
-            self.pushClipRect(cnt.body);
+                if (self.pushContainerBody(cnt, cnt.rect, opts)) {
+                    if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
+                    self.pushClipRect(cnt.body);
+                } else |_| {
+                    _ = self.container_stack.pop() catch unreachable;
+                    return false;
+                }
+            } else |_| {
+                return false;
+            }
+
+            return true;
         }
 
         pub fn endPanel(self: *Self) void {
+            // NOTE (Matteo): This function is considered infallible because
+            // it should be called only if beginPanel returned true
             self.popClipRect();
-            // Pop container
             const layout = self.layout_stack.pop() catch unreachable;
             const slot = self.container_stack.pop() catch unreachable;
             self.containers[slot].content_size = layout.max.sub(layout.body.pt);
@@ -1374,9 +1389,13 @@ pub fn Context(comptime config: Config) type {
                 pos.x = rect.pt.x + self.style.padding;
             }
 
-            self.pushClipRect(rect);
-            self.drawText(font, str, pos, self.getColor(color)) catch unreachable;
-            self.popClipRect();
+            self.drawTextClipped(
+                font,
+                str,
+                pos,
+                self.getColor(color),
+                rect.intersect(self.peekClipRect()),
+            ) catch unreachable;
         }
 
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
@@ -1385,11 +1404,13 @@ pub fn Context(comptime config: Config) type {
             self.draw_frame(self, rect, color_id);
         }
 
-        fn drawDefaultFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+        fn drawDefaultFrame(self: *Self, frame: Rect, color_id: ColorId) void {
+            const rect = self.peekClipRect().intersect(frame);
+            if (rect.isEmpty()) return;
+
             // TODO (Matteo): Review / improve.
             // Ignoring OOM here means something will not be drawn
-            const color = self.getColor(color_id);
-            self.drawRect(rect, color) catch return;
+            self.command_list.pushRect(rect, self.getColor(color_id)) catch return;
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
@@ -1411,35 +1432,35 @@ pub fn Context(comptime config: Config) type {
 
         pub fn drawRect(self: *Self, rect: Rect, color: Color) !void {
             const clipped = self.peekClipRect().intersect(rect);
-
-            if (clipped.sz.x > 0 and clipped.sz.y > 0) {
-                try self.command_list.pushRect(clipped, color);
-            }
+            if (!clipped.isEmpty()) try self.command_list.pushRect(clipped, color);
         }
 
-        pub fn drawBox(self: *Self, rect: Rect, color: Color) !void {
-            try self.drawRect(Rect.init(
+        pub fn drawBox(self: *Self, box: Rect, color: Color) !void {
+            const rect = self.peekClipRect().intersect(box);
+            if (rect.isEmpty()) return;
+
+            try self.command_list.pushRect(Rect.init(
                 rect.pt.x + 1,
                 rect.pt.y,
                 rect.sz.x - 2,
                 1,
             ), color);
 
-            try self.drawRect(Rect.init(
+            try self.command_list.pushRect(Rect.init(
                 rect.pt.x + 1,
                 rect.pt.y + rect.sz.y - 1,
                 rect.sz.x - 2,
                 1,
             ), color);
 
-            try self.drawRect(Rect.init(
+            try self.command_list.pushRect(Rect.init(
                 rect.pt.x,
                 rect.pt.y,
                 1,
                 rect.sz.y,
             ), color);
 
-            try self.drawRect(Rect.init(
+            try self.command_list.pushRect(Rect.init(
                 rect.pt.x + rect.sz.x - 1,
                 rect.pt.y,
                 1,
@@ -1454,32 +1475,48 @@ pub fn Context(comptime config: Config) type {
             pos: Vec2,
             color: Color,
         ) !void {
-            // Measure and clip
-            const rect = Rect{ .pt = pos, .sz = font.measure(str) };
-            const clip = self.checkClip(rect);
-            switch (clip) {
-                .All => return,
-                .Part => try self.command_list.pushClip(self.peekClipRect().*),
-                else => {},
-            }
-            // Add command
-            try self.command_list.pushText(str, pos, color, font);
-            // Reset clipping if set
-            if (clip != .None) try self.command_list.pushClip(Rect.unclipped);
+            return drawTextClipped(self, font, str, pos, color, self.peekClipRect());
         }
 
         pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
-            // Measure and clip
-            const clip = self.checkClip(rect);
-            switch (clip) {
+            const clip = self.peekClipRect();
+
+            switch (rect.checkClip(clip)) {
                 .All => return,
-                .Part => try self.command_list.pushClip(self.peekClipRect().*),
-                else => {},
+                .Part => {
+                    try self.command_list.pushClip(clip);
+                    defer self.command_list.pushClip(Rect.unclipped) catch {};
+
+                    try self.command_list.pushIcon(id, rect, color);
+                },
+                else => {
+                    try self.command_list.pushIcon(id, rect, color);
+                },
             }
-            // Add command
-            try self.command_list.pushIcon(id, rect, color);
-            // Reset clipping if set
-            if (clip != .None) try self.command_list.pushClip(Rect.unclipped);
+        }
+
+        fn drawTextClipped(
+            self: *Self,
+            font: *Font,
+            str: []const u8,
+            pos: Vec2,
+            color: Color,
+            clip: Rect,
+        ) !void {
+            const rect = Rect{ .pt = pos, .sz = font.measure(str) };
+
+            switch (rect.checkClip(clip)) {
+                .All => return,
+                .Part => {
+                    try self.command_list.pushClip(clip);
+                    defer self.command_list.pushClip(Rect.unclipped) catch {};
+
+                    try self.command_list.pushText(str, pos, color, font);
+                },
+                else => {
+                    try self.command_list.pushText(str, pos, color, font);
+                },
+            }
         }
 
         //=== Internals ===//
@@ -1529,6 +1566,10 @@ pub const Rect = extern struct {
         };
     }
 
+    pub inline fn isEmpty(rect: Rect) bool {
+        return (rect.sz.x <= 0 or rect.sz.y <= 0);
+    }
+
     pub fn expand(rect: Rect, n: i32) Rect {
         return Rect{
             .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
@@ -1554,6 +1595,28 @@ pub const Rect = extern struct {
         const max = rect.pt.add(rect.sz);
         return p.x >= rect.pt.x and p.x <= max.x and
             p.y >= rect.pt.y and p.y <= max.y;
+    }
+
+    pub fn checkClip(r: Rect, c: Rect) Clip {
+        const rx1 = r.pt.x + r.sz.x;
+        const ry1 = r.pt.y + r.sz.y;
+
+        const cx1 = c.pt.x + c.sz.x;
+        const cy1 = c.pt.y + c.sz.y;
+
+        if (r.pt.x > cx1 or rx1 < c.pt.x or
+            r.pt.y > cy1 or ry1 < c.pt.y)
+        {
+            return .All;
+        }
+
+        if (r.pt.x >= c.pt.x and rx1 <= cx1 and
+            r.pt.y >= c.pt.y and ry1 <= cy1)
+        {
+            return .None;
+        }
+
+        return .Part;
     }
 };
 
