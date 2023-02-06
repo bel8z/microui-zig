@@ -5,7 +5,7 @@ const c = @cImport({
 });
 
 const mu = @import("microui");
-const Context = mu.Context(.{});
+const Ui = mu.Ui(.{});
 const Font = mu.Font;
 
 // Render API
@@ -75,7 +75,7 @@ pub fn main() !void {
         .text_height = r_get_text_height(),
         .text_width = textWidth,
     };
-    var ui = try ui_alloc.create(Context);
+    var ui = try ui_alloc.create(Ui);
     ui.init(&ui_font, null);
 
     // init SDL and renderer
@@ -187,30 +187,30 @@ fn writeLog(text: []const u8) void {
     logbuf_updated = true;
 }
 
-fn testWindow(ctx: *Context) !void {
+fn testWindow(ui: *Ui) !void {
     // do window
-    if (ctx.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{}).any()) {
-        defer ctx.endWindow();
+    if (ui.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{}).any()) {
+        defer ui.endWindow();
 
-        var win = ctx.getCurrentContainer();
+        var win = ui.getCurrentContainer();
         win.*.rect.sz.x = std.math.max(win.*.rect.sz.x, 240);
         win.*.rect.sz.y = std.math.max(win.*.rect.sz.y, 300);
 
         // window info */
-        if (ctx.header("Window Info", .{}).any()) {
-            win = ctx.getCurrentContainer();
+        if (ui.header("Window Info", .{}).any()) {
+            win = ui.getCurrentContainer();
             var buf: [64]u8 = undefined;
-            ctx.layoutRow(.{ 54, -1 }, 0);
+            ui.layoutRow(.{ 54, -1 }, 0);
 
-            ctx.label("Position:");
-            ctx.label(try std.fmt.bufPrint(
+            ui.label("Position:");
+            ui.label(try std.fmt.bufPrint(
                 buf[0..],
                 "{}, {}",
                 .{ win.*.rect.pt.x, win.*.rect.pt.y },
             ));
 
-            ctx.label("Size:");
-            ctx.label(try std.fmt.bufPrint(
+            ui.label("Size:");
+            ui.label(try std.fmt.bufPrint(
                 buf[0..],
                 "{}, {}",
                 .{ win.*.rect.sz.x, win.*.rect.sz.y },
@@ -218,90 +218,90 @@ fn testWindow(ctx: *Context) !void {
         }
 
         // labels + buttons */
-        if (ctx.header("Test Buttons", .{ .expanded = true }).any()) {
-            ctx.layoutRow(.{ 86, -110, -1 }, 0);
+        if (ui.header("Test Buttons", .{ .expanded = true }).any()) {
+            ui.layoutRow(.{ 86, -110, -1 }, 0);
 
-            ctx.label("Test buttons 1:");
+            ui.label("Test buttons 1:");
 
-            if (ctx.button("Button 1").any()) writeLog("Pressed button 1");
-            if (ctx.button("Button 2").any()) writeLog("Pressed button 2");
+            if (ui.button("Button 1").any()) writeLog("Pressed button 1");
+            if (ui.button("Button 2").any()) writeLog("Pressed button 2");
 
-            ctx.label("Test buttons 2:");
+            ui.label("Test buttons 2:");
 
-            if (ctx.button("Button 3").any()) writeLog("Pressed button 3");
-            if (ctx.button("Popup").any()) ctx.openPopup("Test Popup");
+            if (ui.button("Button 3").any()) writeLog("Pressed button 3");
+            if (ui.button("Popup").any()) ui.openPopup("Test Popup");
 
-            if (ctx.beginPopup("Test Popup").any()) {
-                _ = ctx.button("Hello");
-                _ = ctx.button("World");
-                ctx.endPopup();
+            if (ui.beginPopup("Test Popup").any()) {
+                _ = ui.button("Hello");
+                _ = ui.button("World");
+                ui.endPopup();
             }
         }
 
         // tree */
-        if (ctx.header("Tree and Text", .{ .expanded = true }).any()) {
-            ctx.layoutRow(.{ 140, -1 }, 0);
-            ctx.layoutBeginColumn();
+        if (ui.header("Tree and Text", .{ .expanded = true }).any()) {
+            ui.layoutRow(.{ 140, -1 }, 0);
+            ui.layoutBeginColumn();
 
-            if (ctx.beginTreeNode("Test 1", .{}).any()) {
-                if (ctx.beginTreeNode("Test 1a", .{}).any()) {
-                    ctx.label("Hello");
-                    ctx.label("world");
-                    ctx.endTreeNode();
+            if (ui.beginTreeNode("Test 1", .{}).any()) {
+                if (ui.beginTreeNode("Test 1a", .{}).any()) {
+                    ui.label("Hello");
+                    ui.label("world");
+                    ui.endTreeNode();
                 }
 
-                if (ctx.beginTreeNode("Test 1b", .{}).any()) {
-                    if (ctx.button("Button 1").any()) writeLog("Pressed button 1");
-                    if (ctx.button("Button 2").any()) writeLog("Pressed button 2");
-                    ctx.endTreeNode();
+                if (ui.beginTreeNode("Test 1b", .{}).any()) {
+                    if (ui.button("Button 1").any()) writeLog("Pressed button 1");
+                    if (ui.button("Button 2").any()) writeLog("Pressed button 2");
+                    ui.endTreeNode();
                 }
 
-                ctx.endTreeNode();
+                ui.endTreeNode();
             }
 
-            if (ctx.beginTreeNode("Test 2", .{}).any()) {
-                ctx.layoutRow(.{ 54, 54 }, 0);
+            if (ui.beginTreeNode("Test 2", .{}).any()) {
+                ui.layoutRow(.{ 54, 54 }, 0);
 
-                if (ctx.button("Button 3").any()) writeLog("Pressed button 3");
-                if (ctx.button("Button 4").any()) writeLog("Pressed button 4");
-                if (ctx.button("Button 5").any()) writeLog("Pressed button 5");
-                if (ctx.button("Button 6").any()) writeLog("Pressed button 6");
+                if (ui.button("Button 3").any()) writeLog("Pressed button 3");
+                if (ui.button("Button 4").any()) writeLog("Pressed button 4");
+                if (ui.button("Button 5").any()) writeLog("Pressed button 5");
+                if (ui.button("Button 6").any()) writeLog("Pressed button 6");
 
-                ctx.endTreeNode();
+                ui.endTreeNode();
             }
 
-            if (ctx.beginTreeNode("Test 3", .{}).any()) {
-                _ = ctx.checkbox("Checkbox 1", &checks[0]);
-                _ = ctx.checkbox("Checkbox 2", &checks[1]);
-                _ = ctx.checkbox("Checkbox 3", &checks[2]);
-                ctx.endTreeNode();
+            if (ui.beginTreeNode("Test 3", .{}).any()) {
+                _ = ui.checkbox("Checkbox 1", &checks[0]);
+                _ = ui.checkbox("Checkbox 2", &checks[1]);
+                _ = ui.checkbox("Checkbox 3", &checks[2]);
+                ui.endTreeNode();
             }
-            ctx.layoutEndColumn();
+            ui.layoutEndColumn();
 
-            ctx.layoutBeginColumn();
-            ctx.layoutRow(.{-1}, 0);
-            ctx.text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas lacinia, sem eu lacinia molestie, mi risus faucibus ipsum, eu varius magna felis a nulla.");
-            ctx.layoutEndColumn();
+            ui.layoutBeginColumn();
+            ui.layoutRow(.{-1}, 0);
+            ui.text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas lacinia, sem eu lacinia molestie, mi risus faucibus ipsum, eu varius magna felis a nulla.");
+            ui.layoutEndColumn();
         }
 
         // background color sliders */
-        if (ctx.header("Background Color", .{ .expanded = true }).any()) {
-            ctx.layoutRow(.{ -78, -1 }, 74);
+        if (ui.header("Background Color", .{ .expanded = true }).any()) {
+            ui.layoutRow(.{ -78, -1 }, 74);
             // sliders */
-            ctx.layoutBeginColumn();
-            ctx.layoutRow(.{ 46, -1 }, 0);
-            ctx.label("Red:");
-            _ = sliderU8(ctx, &bg.r);
-            ctx.label("Green:");
-            _ = sliderU8(ctx, &bg.g);
-            ctx.label("Blue:");
-            _ = sliderU8(ctx, &bg.b);
-            ctx.layoutEndColumn();
+            ui.layoutBeginColumn();
+            ui.layoutRow(.{ 46, -1 }, 0);
+            ui.label("Red:");
+            _ = sliderU8(ui, &bg.r);
+            ui.label("Green:");
+            _ = sliderU8(ui, &bg.g);
+            ui.label("Blue:");
+            _ = sliderU8(ui, &bg.b);
+            ui.layoutEndColumn();
             // color preview */
-            const r = ctx.layoutNext();
-            ctx.drawRect(r, bg) catch unreachable;
+            const r = ui.layoutNext();
+            ui.drawRect(r, bg) catch unreachable;
             var buf: [32]u8 = undefined;
-            ctx.drawControlText(
+            ui.drawControlText(
                 try std.fmt.bufPrint(buf[0..], "#{X}{X}{X}", .{ bg.r, bg.g, bg.b }),
                 r,
                 .Text,
@@ -311,19 +311,19 @@ fn testWindow(ctx: *Context) !void {
     }
 }
 
-fn logWindow(ctx: *Context) void {
-    if (ctx.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{}).any()) {
-        defer ctx.endWindow();
+fn logWindow(ui: *Ui) void {
+    if (ui.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{}).any()) {
+        defer ui.endWindow();
 
         //  output text panel
-        ctx.layoutRow(.{-1}, -25);
+        ui.layoutRow(.{-1}, -25);
 
-        if (ctx.beginPanel("Log Output", .{})) {
-            var panel = ctx.getCurrentContainer();
-            ctx.layoutRow(.{-1}, -1);
+        if (ui.beginPanel("Log Output", .{})) {
+            var panel = ui.getCurrentContainer();
+            ui.layoutRow(.{-1}, -1);
 
-            ctx.text(logbuf.getWritten());
-            ctx.endPanel();
+            ui.text(logbuf.getWritten());
+            ui.endPanel();
 
             if (logbuf_updated) {
                 panel.*.scroll.y = panel.*.content_size.y;
@@ -337,13 +337,13 @@ fn logWindow(ctx: *Context) void {
             var text = mu.TextBuffer.fromSlice(buf[0..]);
         };
 
-        ctx.layoutRow(.{ -70, -1 }, 0);
+        ui.layoutRow(.{ -70, -1 }, 0);
 
-        var result = ctx.textbox(&input.text, .{});
+        var result = ui.textbox(&input.text, .{});
 
-        if (result.submit) ctx.curr_focus = ctx.*.last_id;
+        if (result.submit) ui.curr_focus = ui.*.last_id;
 
-        if (ctx.button("Submit").any()) result.submit = true;
+        if (ui.button("Submit").any()) result.submit = true;
 
         if (result.submit) {
             writeLog(input.text.text);
@@ -352,32 +352,32 @@ fn logWindow(ctx: *Context) void {
     }
 }
 
-fn styleWindow(ctx: *Context) void {
-    if (ctx.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{}).any()) {
-        defer ctx.endWindow();
+fn styleWindow(ui: *Ui) void {
+    if (ui.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{}).any()) {
+        defer ui.endWindow();
 
-        const width = ctx.getCurrentContainer().*.body.sz.x;
+        const width = ui.getCurrentContainer().*.body.sz.x;
         const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
-        ctx.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
+        ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
         for (color_map) |label, i| {
-            var color = &ctx.style.*.colors[i];
-            ctx.label(label);
-            _ = sliderU8(ctx, &color.r);
-            _ = sliderU8(ctx, &color.g);
-            _ = sliderU8(ctx, &color.b);
-            _ = sliderU8(ctx, &color.a);
-            ctx.drawRect(ctx.layoutNext(), color.*) catch unreachable;
+            var color = &ui.style.*.colors[i];
+            ui.label(label);
+            _ = sliderU8(ui, &color.r);
+            _ = sliderU8(ui, &color.g);
+            _ = sliderU8(ui, &color.b);
+            _ = sliderU8(ui, &color.a);
+            ui.drawRect(ui.layoutNext(), color.*) catch unreachable;
         }
     }
 }
 
-fn sliderU8(ctx: *Context, value: *u8) mu.Result {
+fn sliderU8(ui: *Ui, value: *u8) mu.Result {
     var tmp = @intToFloat(f32, value.*);
 
-    ctx.pushId(value);
+    ui.pushId(value);
 
-    const res = ctx.sliderEx(
+    const res = ui.sliderEx(
         &tmp,
         @intToFloat(f32, std.math.minInt(u8)),
         @intToFloat(f32, std.math.maxInt(u8)),
@@ -387,7 +387,7 @@ fn sliderU8(ctx: *Context, value: *u8) mu.Result {
     );
     value.* = @floatToInt(u8, tmp);
 
-    ctx.popId();
+    ui.popId();
 
     return res;
 }

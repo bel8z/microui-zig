@@ -13,10 +13,8 @@ const assert = std.debug.assert;
 test "MicroUi" {
     std.testing.refAllDecls(@This());
 
-    const MicroUi = Context(.{});
-
     var font: Font = undefined;
-    var ui: MicroUi = undefined;
+    var ui: Ui(.{}) = undefined;
     ui.init(&font, null);
 
     var input = ui.getInput();
@@ -137,7 +135,7 @@ pub const Config = struct {
     input_buf_size: u32 = 32,
 };
 
-pub fn Context(comptime config: Config) type {
+pub fn Ui(comptime config: Config) type {
     return struct {
         comptime {
             assert(config.max_widths <= std.math.maxInt(u32));
