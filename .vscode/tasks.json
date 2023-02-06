@@ -10,6 +10,22 @@
             "group": {
                 "kind": "build",
             },
+            "problemMatcher":{
+                "owner": "zig",
+                "fileLocation": "absolute",
+                "pattern":{
+                    "regexp": "(.+):(\\d+):(\\d+): (error|note):(.+)",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "silent",
+                "revealProblems": "onProblem",
+            },
         },
         {
             "label": "Run C demo",
@@ -27,6 +43,24 @@
                 "kind": "build",
                 "isDefault": true
             },
+            "problemMatcher":{
+                "owner": "zig",
+                "fileLocation": "absolute",
+                "pattern":{
+                    "regexp": "(.+):(\\d+):(\\d+): (error|note):(.+)",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "silent",
+                "revealProblems": "onProblem",
+                "close": true
+            }
         },
+        
     ]
 }
