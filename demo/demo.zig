@@ -64,7 +64,7 @@ var _logbuf = [_]u8{0} ** 64000;
 var logbuf = std.io.fixedBufferStream(_logbuf[0..]);
 var logbuf_updated = false;
 
-var bg = [_]f32{ 90, 95, 100 };
+var bg = mu.Color{ .r = 90, .g = 95, .b = 100, .a = 255 };
 var checks = [3]bool{ true, false, true };
 
 pub fn main() !void {
@@ -146,12 +146,7 @@ pub fn main() !void {
 
         // TODO (Matteo): TEST RENDERING!!!
         // render
-        r_clear(mu.Color{
-            .r = @floatToInt(u8, bg[0]),
-            .g = @floatToInt(u8, bg[1]),
-            .b = @floatToInt(u8, bg[2]),
-            .a = 255,
-        });
+        r_clear(bg);
 
         var iter = ui.command_list.iter();
         while (iter.next()) |cmd| {
@@ -296,27 +291,18 @@ fn testWindow(ctx: *Context) !void {
             ctx.layoutBeginColumn();
             ctx.layoutRow(.{ 46, -1 }, 0);
             ctx.label("Red:");
-            _ = ctx.slider(&bg[0], 0, 255);
+            _ = sliderU8(ctx, &bg.r);
             ctx.label("Green:");
-            _ = ctx.slider(&bg[1], 0, 255);
+            _ = sliderU8(ctx, &bg.g);
             ctx.label("Blue:");
-            _ = ctx.slider(&bg[2], 0, 255);
+            _ = sliderU8(ctx, &bg.b);
             ctx.layoutEndColumn();
             // color preview */
             const r = ctx.layoutNext();
-            ctx.drawRect(r, mu.Color{
-                .r = @floatToInt(u8, bg[1]),
-                .g = @floatToInt(u8, bg[0]),
-                .b = @floatToInt(u8, bg[2]),
-                .a = 255,
-            }) catch unreachable;
+            ctx.drawRect(r, bg) catch unreachable;
             var buf: [32]u8 = undefined;
             ctx.drawControlText(
-                try std.fmt.bufPrint(buf[0..], "#{X}{X}{X}", .{
-                    @floatToInt(i32, bg[0]),
-                    @floatToInt(i32, bg[1]),
-                    @floatToInt(i32, bg[2]),
-                }),
+                try std.fmt.bufPrint(buf[0..], "#{X}{X}{X}", .{ bg.r, bg.g, bg.b }),
                 r,
                 .Text,
                 .{ .align_center = true },
@@ -377,24 +363,24 @@ fn styleWindow(ctx: *Context) void {
         for (color_map) |label, i| {
             var color = &ctx.style.*.colors[i];
             ctx.label(label);
-            _ = sliderU8(ctx, &color.r, 0, 255);
-            _ = sliderU8(ctx, &color.g, 0, 255);
-            _ = sliderU8(ctx, &color.b, 0, 255);
-            _ = sliderU8(ctx, &color.a, 0, 255);
+            _ = sliderU8(ctx, &color.r);
+            _ = sliderU8(ctx, &color.g);
+            _ = sliderU8(ctx, &color.b);
+            _ = sliderU8(ctx, &color.a);
             ctx.drawRect(ctx.layoutNext(), color.*) catch unreachable;
         }
     }
 }
 
-fn sliderU8(ctx: *Context, value: *u8, low: u8, high: u8) mu.Result {
+fn sliderU8(ctx: *Context, value: *u8) mu.Result {
     var tmp = @intToFloat(f32, value.*);
 
     ctx.pushId(value);
 
     const res = ctx.sliderEx(
         &tmp,
-        @intToFloat(f32, low),
-        @intToFloat(f32, high),
+        @intToFloat(f32, std.math.minInt(u8)),
+        @intToFloat(f32, std.math.maxInt(u8)),
         0,
         "{d:.0}",
         .{ .align_center = true },
