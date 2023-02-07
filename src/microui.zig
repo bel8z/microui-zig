@@ -761,16 +761,18 @@ pub fn Ui(comptime config: Config) type {
             self.drawControlText(str, self.layoutNext(), .Text, .{});
         }
 
-        pub inline fn button(self: *Self, str: []const u8) Result {
+        /// Returns 'true' if clicked
+        pub inline fn button(self: *Self, str: []const u8) bool {
             return self.buttonEx(str, .None, .{ .align_center = true });
         }
 
+        /// Returns 'true' if clicked
         pub fn buttonEx(
             self: *Self,
             str: []const u8,
             icon: Icon,
             opts: OptionFlags,
-        ) Result {
+        ) bool {
             const id = if (str.len > 0)
                 self.getId(str)
             else
@@ -785,20 +787,19 @@ pub fn Ui(comptime config: Config) type {
             if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
             // Handle click
-            return Result{
-                .submit = (state.focused and self.input.mouse_pressed.left),
-            };
+            return (state.focused and self.input.mouse_pressed.left);
         }
 
-        pub fn checkbox(self: *Self, str: []const u8, checked: *bool) Result {
+        /// Returns 'true' if checked state changed, 'false' otherwise
+        pub fn checkbox(self: *Self, str: []const u8, checked: *bool) bool {
             const id = self.getId(str);
             const rect = self.layoutNext();
             const state = self.updateControl(id, rect, .{});
 
             // Handle click
-            var res = Result{};
+            var changed = false;
             if (state.focused and self.input.mouse_pressed.left) {
-                res.change = true;
+                changed = true;
                 checked.* = !checked.*;
             }
 
@@ -816,10 +817,10 @@ pub fn Ui(comptime config: Config) type {
                 .{},
             );
 
-            return res;
+            return changed;
         }
 
-        pub fn textbox(self: *Self, buf: *TextBuffer, opts: OptionFlags) Result {
+        pub fn textbox(self: *Self, buf: *TextBuffer, opts: OptionFlags) TextBoxState {
             return self.textboxRaw(
                 buf,
                 self.getId(buf),
@@ -834,8 +835,8 @@ pub fn Ui(comptime config: Config) type {
             id: Id,
             rect: Rect,
             opts: OptionFlags,
-        ) Result {
-            var res = Result{};
+        ) TextBoxState {
+            var res = TextBoxState{};
 
             var text_opts = opts;
             text_opts.hold_focus = true;
@@ -889,12 +890,13 @@ pub fn Ui(comptime config: Config) type {
             return res;
         }
 
+        /// Returns 'true' if value is changed, 'false' otherwise
         pub inline fn slider(
             self: *Self,
             value: *Real,
             low: Real,
             high: Real,
-        ) Result {
+        ) bool {
             return self.sliderEx(
                 value,
                 low,
@@ -905,6 +907,7 @@ pub fn Ui(comptime config: Config) type {
             );
         }
 
+        /// Returns 'true' if value is changed, 'false' otherwise
         pub fn sliderEx(
             self: *Self,
             value: *Real,
@@ -913,14 +916,14 @@ pub fn Ui(comptime config: Config) type {
             step: Real,
             comptime fmt: []const u8,
             opts: OptionFlags,
-        ) Result {
+        ) bool {
             const id = self.getId(value);
             const base = self.layoutNext();
             const last = value.*;
             var v = last;
 
             // Handle text input mode
-            if (self.numberTextbox(fmt, &v, base, id)) return Result{};
+            if (self.numberTextbox(fmt, &v, base, id)) return false;
 
             // Handle normal mode
             const state = self.updateControl(id, base, opts);
@@ -963,14 +966,15 @@ pub fn Ui(comptime config: Config) type {
                 opts,
             );
 
-            return Result{ .change = (last != v) };
+            return (last != v);
         }
 
+        /// Returns 'true' if value is changed, 'false' otherwise
         pub fn number(
             self: *Self,
             value: *Real,
             step: Real,
-        ) Result {
+        ) bool {
             return self.numberEx(
                 value,
                 step,
@@ -979,19 +983,20 @@ pub fn Ui(comptime config: Config) type {
             );
         }
 
+        /// Returns 'true' if value is changed, 'false' otherwise
         pub fn numberEx(
             self: *Self,
             value: *Real,
             step: Real,
             comptime fmt: []const u8,
             opts: OptionFlags,
-        ) Result {
+        ) bool {
             const id = self.getId(value);
             const base = self.layoutNext();
             const last = value.*;
 
             // Handle text input mode
-            if (self.numberTextbox(value, base, id)) return Result{};
+            if (self.numberTextbox(value, base, id)) return false;
 
             // Handle normal mode
             const state = self.updateControl(id, base, opts);
@@ -1014,7 +1019,7 @@ pub fn Ui(comptime config: Config) type {
             );
 
             // Set flag if value changed
-            return Result{ .change = (value.* != last) };
+            return (value.* != last);
         }
 
         fn numberTextbox(
@@ -1053,24 +1058,24 @@ pub fn Ui(comptime config: Config) type {
             return false;
         }
 
-        pub fn header(self: *Self, str: []const u8, opts: OptionFlags) Result {
+        /// Returns 'true' if expanded
+        pub fn header(self: *Self, str: []const u8, opts: OptionFlags) bool {
             return self.headerInternal(str, false, opts);
         }
 
-        pub fn beginTreeNode(self: *Self, str: []const u8, opts: OptionFlags) Result {
-            var res = self.headerInternal(str, true, opts);
+        /// Returns 'true' if expanded
+        pub fn beginTreeNode(self: *Self, str: []const u8, opts: OptionFlags) bool {
+            if (!self.headerInternal(str, true, opts)) return false;
 
-            if (res.active) {
-                if (self.id_stack.push(self.last_id)) {
-                    self.peekLayout().indent += self.style.indent;
-                } else |_| {
-                    // Behave as if the node is closed so the user won't keep
-                    // pushing stuff (hopefully)
-                    res = Result{};
-                }
+            if (self.id_stack.push(self.last_id)) {
+                self.peekLayout().indent += self.style.indent;
+            } else |_| {
+                // Behave as if the node is closed so the user won't keep
+                // pushing stuff (hopefully)
+                return false;
             }
 
-            return res;
+            return true;
         }
 
         pub fn endTreeNode(self: *Self) void {
@@ -1086,7 +1091,7 @@ pub fn Ui(comptime config: Config) type {
             str: []const u8,
             is_treenode: bool,
             opts: OptionFlags,
-        ) Result {
+        ) bool {
             const id = self.getId(str);
             const pool_index = self.treenode_pool.getSlot(id);
             const was_active = (pool_index != null);
@@ -1133,7 +1138,7 @@ pub fn Ui(comptime config: Config) type {
                 // Skip drawing in case of errors
             }
 
-            return Result{ .active = expanded };
+            return expanded;
         }
 
         pub fn beginWindow(
@@ -1141,16 +1146,16 @@ pub fn Ui(comptime config: Config) type {
             title: []const u8,
             init_rect: Rect,
             opts: OptionFlags,
-        ) Result {
+        ) bool {
             const id = self.getId(title);
-            const slot = self.getContainerById(id, opts) orelse return Result{};
+            const slot = self.getContainerById(id, opts) orelse return false;
             var cnt = &self.containers[slot];
-            if (!cnt.open) return Result{};
+            if (!cnt.open) return false;
 
             if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
 
             // Push root container
-            // TODO (Matteo): Handle gracefully by returning Result{} and
+            // TODO (Matteo): Handle gracefully by returning 'false' and
             // pop from affected stacks
             self.id_stack.push(id) catch unreachable;
             self.container_stack.push(slot) catch unreachable;
@@ -1243,7 +1248,7 @@ pub fn Ui(comptime config: Config) type {
             }
 
             self.pushClipRect(cnt.body);
-            return Result{ .active = true };
+            return true;
         }
 
         pub fn endWindow(self: *Self) void {
@@ -1277,7 +1282,7 @@ pub fn Ui(comptime config: Config) type {
             self.bringToFront(cnt);
         }
 
-        pub fn beginPopup(self: *Self, name: []const u8) Result {
+        pub fn beginPopup(self: *Self, name: []const u8) bool {
             return self.beginWindow(name, .{}, .{
                 .popup = true,
                 .auto_size = true,
@@ -1762,15 +1767,6 @@ pub const ControlState = packed struct {
     pub usingnamespace util.BitSet(ControlState, u2);
 };
 
-// TODO (Matteo): Is as bitset really useful? Would a simple boolean be enough?
-pub const Result = packed struct {
-    active: bool = false,
-    submit: bool = false,
-    change: bool = false,
-
-    pub usingnamespace util.BitSet(Result, u3);
-};
-
 //=================//
 //  Text handling  //
 //=================//
@@ -1837,6 +1833,12 @@ pub const TextBuffer = struct {
 
         return false;
     }
+};
+
+pub const TextBoxState = packed struct {
+    submit: bool = false,
+    change: bool = false,
+    pub usingnamespace util.BitSet(TextBoxState, u2);
 };
 
 //=====================//

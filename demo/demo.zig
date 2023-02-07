@@ -189,7 +189,7 @@ fn writeLog(text: []const u8) void {
 
 fn testWindow(ui: *Ui) !void {
     // do window
-    if (ui.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{}).any()) {
+    if (ui.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{})) {
         defer ui.endWindow();
 
         var win = ui.getCurrentContainer();
@@ -197,7 +197,7 @@ fn testWindow(ui: *Ui) !void {
         win.*.rect.sz.y = std.math.max(win.*.rect.sz.y, 300);
 
         // window info */
-        if (ui.header("Window Info", .{}).any()) {
+        if (ui.header("Window Info", .{})) {
             win = ui.getCurrentContainer();
             var buf: [64]u8 = undefined;
             ui.layoutRow(.{ 54, -1 }, 0);
@@ -218,20 +218,20 @@ fn testWindow(ui: *Ui) !void {
         }
 
         // labels + buttons */
-        if (ui.header("Test Buttons", .{ .expanded = true }).any()) {
+        if (ui.header("Test Buttons", .{ .expanded = true })) {
             ui.layoutRow(.{ 86, -110, -1 }, 0);
 
             ui.label("Test buttons 1:");
 
-            if (ui.button("Button 1").any()) writeLog("Pressed button 1");
-            if (ui.button("Button 2").any()) writeLog("Pressed button 2");
+            if (ui.button("Button 1")) writeLog("Pressed button 1");
+            if (ui.button("Button 2")) writeLog("Pressed button 2");
 
             ui.label("Test buttons 2:");
 
-            if (ui.button("Button 3").any()) writeLog("Pressed button 3");
-            if (ui.button("Popup").any()) ui.openPopup("Test Popup");
+            if (ui.button("Button 3")) writeLog("Pressed button 3");
+            if (ui.button("Popup")) ui.openPopup("Test Popup");
 
-            if (ui.beginPopup("Test Popup").any()) {
+            if (ui.beginPopup("Test Popup")) {
                 _ = ui.button("Hello");
                 _ = ui.button("World");
                 ui.endPopup();
@@ -239,38 +239,38 @@ fn testWindow(ui: *Ui) !void {
         }
 
         // tree */
-        if (ui.header("Tree and Text", .{ .expanded = true }).any()) {
+        if (ui.header("Tree and Text", .{ .expanded = true })) {
             ui.layoutRow(.{ 140, -1 }, 0);
             ui.layoutBeginColumn();
 
-            if (ui.beginTreeNode("Test 1", .{}).any()) {
-                if (ui.beginTreeNode("Test 1a", .{}).any()) {
+            if (ui.beginTreeNode("Test 1", .{})) {
+                if (ui.beginTreeNode("Test 1a", .{})) {
                     ui.label("Hello");
                     ui.label("world");
                     ui.endTreeNode();
                 }
 
-                if (ui.beginTreeNode("Test 1b", .{}).any()) {
-                    if (ui.button("Button 1").any()) writeLog("Pressed button 1");
-                    if (ui.button("Button 2").any()) writeLog("Pressed button 2");
+                if (ui.beginTreeNode("Test 1b", .{})) {
+                    if (ui.button("Button 1")) writeLog("Pressed button 1");
+                    if (ui.button("Button 2")) writeLog("Pressed button 2");
                     ui.endTreeNode();
                 }
 
                 ui.endTreeNode();
             }
 
-            if (ui.beginTreeNode("Test 2", .{}).any()) {
+            if (ui.beginTreeNode("Test 2", .{})) {
                 ui.layoutRow(.{ 54, 54 }, 0);
 
-                if (ui.button("Button 3").any()) writeLog("Pressed button 3");
-                if (ui.button("Button 4").any()) writeLog("Pressed button 4");
-                if (ui.button("Button 5").any()) writeLog("Pressed button 5");
-                if (ui.button("Button 6").any()) writeLog("Pressed button 6");
+                if (ui.button("Button 3")) writeLog("Pressed button 3");
+                if (ui.button("Button 4")) writeLog("Pressed button 4");
+                if (ui.button("Button 5")) writeLog("Pressed button 5");
+                if (ui.button("Button 6")) writeLog("Pressed button 6");
 
                 ui.endTreeNode();
             }
 
-            if (ui.beginTreeNode("Test 3", .{}).any()) {
+            if (ui.beginTreeNode("Test 3", .{})) {
                 _ = ui.checkbox("Checkbox 1", &checks[0]);
                 _ = ui.checkbox("Checkbox 2", &checks[1]);
                 _ = ui.checkbox("Checkbox 3", &checks[2]);
@@ -285,7 +285,7 @@ fn testWindow(ui: *Ui) !void {
         }
 
         // background color sliders */
-        if (ui.header("Background Color", .{ .expanded = true }).any()) {
+        if (ui.header("Background Color", .{ .expanded = true })) {
             ui.layoutRow(.{ -78, -1 }, 74);
             // sliders */
             ui.layoutBeginColumn();
@@ -312,7 +312,7 @@ fn testWindow(ui: *Ui) !void {
 }
 
 fn logWindow(ui: *Ui) void {
-    if (ui.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{}).any()) {
+    if (ui.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{})) {
         defer ui.endWindow();
 
         //  output text panel
@@ -343,7 +343,7 @@ fn logWindow(ui: *Ui) void {
 
         if (result.submit) ui.curr_focus = ui.*.last_id;
 
-        if (ui.button("Submit").any()) result.submit = true;
+        if (ui.button("Submit")) result.submit = true;
 
         if (result.submit) {
             writeLog(input.text.text);
@@ -353,7 +353,7 @@ fn logWindow(ui: *Ui) void {
 }
 
 fn styleWindow(ui: *Ui) void {
-    if (ui.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{}).any()) {
+    if (ui.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{})) {
         defer ui.endWindow();
 
         const width = ui.getCurrentContainer().*.body.sz.x;
@@ -372,7 +372,7 @@ fn styleWindow(ui: *Ui) void {
     }
 }
 
-fn sliderU8(ui: *Ui, value: *u8) mu.Result {
+fn sliderU8(ui: *Ui, value: *u8) bool {
     var tmp = @intToFloat(f32, value.*);
 
     ui.pushId(value);
