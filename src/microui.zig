@@ -7,7 +7,6 @@
 //
 
 const std = @import("std");
-const util = @import("util.zig");
 const assert = std.debug.assert;
 
 test "MicroUi" {
@@ -76,7 +75,7 @@ pub const OptionFlags = packed struct {
     closed: bool = false,
     expanded: bool = false,
 
-    pub usingnamespace util.BitSet(OptionFlags, u12);
+    pub usingnamespace BitSet(OptionFlags, u12);
 };
 
 pub const Container = struct {
@@ -99,7 +98,7 @@ pub const Style = struct {
     title_height: i32 = 24,
     scrollbar_size: i32 = 12,
     thumb_size: i32 = 8,
-    colors: [util.memberCount(ColorId)]Color = [_]Color{
+    colors: [color_count]Color = [_]Color{
         .{ .r = 230, .g = 230, .b = 230, .a = 255 }, // Text
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // Border
         .{ .r = 50, .g = 50, .b = 50, .a = 255 }, // WindowBg
@@ -115,6 +114,8 @@ pub const Style = struct {
         .{ .r = 43, .g = 43, .b = 43, .a = 255 }, // ScrollBase
         .{ .r = 30, .g = 30, .b = 30, .a = 255 }, // ScrollThumb
     },
+
+    const color_count = @typeInfo(ColorId).Enum.fields.len;
 };
 
 /// Compile-time configuration parameters
@@ -193,16 +194,16 @@ pub fn Ui(comptime config: Config) type {
 
         // stacks
         command_list: command.CommandList(config.command_list_size) = .{},
-        root_list: util.Stack(*Container, config.rootlist_size) = .{},
-        container_stack: util.Stack(util.PoolSlot, config.container_stack_size) = .{},
-        clip_stack: util.Stack(Rect, config.clip_stack_size) = .{},
-        id_stack: util.Stack(Id, config.id_stack_size) = .{},
-        layout_stack: util.Stack(Layout, config.layout_stack_size) = .{},
+        root_list: std.BoundedArray(*Container, config.rootlist_size) = .{},
+        container_stack: std.BoundedArray(PoolSlot, config.container_stack_size) = .{},
+        clip_stack: std.BoundedArray(Rect, config.clip_stack_size) = .{},
+        id_stack: std.BoundedArray(Id, config.id_stack_size) = .{},
+        layout_stack: std.BoundedArray(Layout, config.layout_stack_size) = .{},
 
         // retained state pools
         containers: [config.container_pool_size]Container = undefined,
-        container_pool: util.Pool(config.container_pool_size) = .{},
-        treenode_pool: util.Pool(config.treenode_pool_size) = .{},
+        container_pool: Pool(config.container_pool_size) = .{},
+        treenode_pool: Pool(config.treenode_pool_size) = .{},
 
         // input state
         input: Input = .{ .text_buf = .{} },
@@ -246,13 +247,13 @@ pub fn Ui(comptime config: Config) type {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             // Check stacks
-            assert(self.container_stack.isEmpty());
-            assert(self.clip_stack.isEmpty());
-            assert(self.id_stack.isEmpty());
-            assert(self.layout_stack.isEmpty());
+            assert(self.container_stack.len == 0);
+            assert(self.clip_stack.len == 0);
+            assert(self.id_stack.len == 0);
+            assert(self.layout_stack.len == 0);
 
             self.command_list.clear();
-            self.root_list.clear();
+            self.root_list.resize(0) catch unreachable;
 
             self.scroll_target = null;
             self.hover_root = self.next_hover_root;
@@ -271,10 +272,10 @@ pub fn Ui(comptime config: Config) type {
         pub fn endFrame(self: *Self) void {
             // Check stacks - assertion are fine here since we are checking
             // for internal consistency and not an user error
-            assert(self.container_stack.isEmpty());
-            assert(self.clip_stack.isEmpty());
-            assert(self.id_stack.isEmpty());
-            assert(self.layout_stack.isEmpty());
+            assert(self.container_stack.len == 0);
+            assert(self.clip_stack.len == 0);
+            assert(self.id_stack.len == 0);
+            assert(self.layout_stack.len == 0);
 
             // Handle scroll target
             if (self.scroll_target) |tgt| {
@@ -301,23 +302,23 @@ pub fn Ui(comptime config: Config) type {
                 }
             };
 
-            const n = self.root_list.idx;
-            std.sort.sort(*Container, self.root_list.items[0..n], {}, compare.lessThan);
+            const roots = self.root_list.slice();
+            std.sort.sort(*Container, roots, {}, compare.lessThan);
 
             // TODO (Matteo): Review
             // Set root container jump commands
-            for (self.root_list.items[0..n]) |cnt, i| {
+            for (roots) |cnt, i| {
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
                 var cmd = if (i == 0)
                     self.command_list.get(0)
                 else
-                    self.command_list.get(self.root_list.items[i - 1].tail);
+                    self.command_list.get(roots[i - 1].tail);
 
                 cmd.jump.dst = cnt.head + self.command_list.get(cnt.head).base.size;
 
                 // Make the last container's tail jump to the end of command list
-                if (i == n - 1) {
+                if (i == roots.len - 1) {
                     self.command_list.get(cnt.tail).jump.dst = self.command_list.tail;
                 }
             }
@@ -326,24 +327,27 @@ pub fn Ui(comptime config: Config) type {
         //=== ID management ===//
 
         pub fn getId(self: *Self, data: anytype) Id {
-            const init_id = if (self.id_stack.peek()) |id| id.* else HASH_INITIAL;
+            const id_count = self.id_stack.len;
+            const init_id = if (id_count > 0) self.id_stack.get(id_count - 1) else HASH_INITIAL;
             self.last_id = hash(data, init_id);
             return self.last_id;
         }
 
         pub fn pushId(self: *Self, data: anytype) void {
-            self.id_stack.push(self.getId(data)) catch unreachable;
+            self.id_stack.append(self.getId(data)) catch unreachable;
         }
 
         pub fn popId(self: *Self) void {
-            _ = self.id_stack.pop() catch unreachable;
+            _ = self.id_stack.pop();
         }
 
         //=== Container management ===//
 
         pub fn getCurrentContainer(self: *Self) *Container {
-            const slot = self.container_stack.peek() orelse unreachable;
-            return &self.containers[slot.*];
+            const n = self.container_stack.len;
+            assert(n > 0);
+            const slot = self.container_stack.get(n - 1);
+            return &self.containers[slot];
         }
 
         pub fn getContainer(self: *Self, name: []const u8) *Container {
@@ -357,7 +361,7 @@ pub fn Ui(comptime config: Config) type {
             cnt.zindex = self.last_zindex;
         }
 
-        fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?util.PoolSlot {
+        fn getContainerById(self: *Self, id: Id, opt: OptionFlags) ?PoolSlot {
             // Try to get existing container from pool
             if (self.container_pool.getSlot(id)) |index| {
                 if (self.containers[index].open or !opt.closed) {
@@ -475,7 +479,7 @@ pub fn Ui(comptime config: Config) type {
         }
 
         pub fn layoutEndColumn(self: *Self) void {
-            const src = self.layout_stack.pop() catch unreachable;
+            const src = self.layout_stack.pop();
             var dst = self.peekLayout();
 
             // Inherit position/next_row/max from child layout if they are greater
@@ -579,7 +583,7 @@ pub fn Ui(comptime config: Config) type {
             const min = std.math.minInt(i32);
             comptime assert(min < 0);
 
-            try self.layout_stack.push(Layout{
+            try self.layout_stack.append(Layout{
                 .body = Rect{ .pt = body.pt.sub(scroll), .sz = body.sz },
                 .max = Vec2{ .x = min, .y = min },
             });
@@ -590,7 +594,9 @@ pub fn Ui(comptime config: Config) type {
         }
 
         fn peekLayout(self: *Self) *Layout {
-            return self.layout_stack.peek() orelse unreachable;
+            const n = self.layout_stack.len;
+            assert(n > 0);
+            return &self.layout_stack.buffer[n - 1];
         }
 
         //=== Clipping ===//
@@ -598,16 +604,15 @@ pub fn Ui(comptime config: Config) type {
         pub fn pushClipRect(self: *Self, rect: Rect) void {
             const last = self.peekClipRect();
             const clip = last.intersect(rect);
-            self.clip_stack.push(clip) catch unreachable;
+            self.clip_stack.append(clip) catch unreachable;
         }
 
         pub fn popClipRect(self: *Self) void {
-            _ = self.clip_stack.pop() catch unreachable;
+            _ = self.clip_stack.pop();
         }
 
         pub fn peekClipRect(self: *Self) Rect {
-            const ptr = self.clip_stack.peek() orelse unreachable;
-            return ptr.*;
+            return self.clip_stack.get(self.clip_stack.len - 1);
         }
 
         pub fn checkClip(self: *Self, r: Rect) Clip {
@@ -692,12 +697,12 @@ pub fn Ui(comptime config: Config) type {
         }
 
         fn inHoverRoot(self: *Self) bool {
-            var i = self.container_stack.idx;
+            var i = self.container_stack.len;
 
             while (i > 0) {
                 i -= 1;
 
-                const slot = self.container_stack.items[i];
+                const slot = self.container_stack.get(i);
                 if (&self.containers[slot] == self.hover_root) return true;
 
                 // Only root containers have their `head` field set; stop searching
@@ -1067,7 +1072,7 @@ pub fn Ui(comptime config: Config) type {
         pub fn beginTreeNode(self: *Self, str: []const u8, opts: OptionFlags) bool {
             if (!self.headerInternal(str, true, opts)) return false;
 
-            if (self.id_stack.push(self.last_id)) {
+            if (self.id_stack.append(self.last_id)) {
                 self.peekLayout().indent += self.style.indent;
             } else |_| {
                 // Behave as if the node is closed so the user won't keep
@@ -1079,9 +1084,9 @@ pub fn Ui(comptime config: Config) type {
         }
 
         pub fn endTreeNode(self: *Self) void {
-            if (self.id_stack.pop()) |_| {
+            if (self.id_stack.popOrNull()) |_| {
                 self.peekLayout().indent -= self.style.indent;
-            } else |_| {
+            } else {
                 assert(false);
             }
         }
@@ -1157,9 +1162,9 @@ pub fn Ui(comptime config: Config) type {
             // Push root container
             // TODO (Matteo): Handle gracefully by returning 'false' and
             // pop from affected stacks
-            self.id_stack.push(id) catch unreachable;
-            self.container_stack.push(slot) catch unreachable;
-            self.root_list.push(cnt) catch unreachable;
+            self.id_stack.append(id) catch unreachable;
+            self.container_stack.append(slot) catch unreachable;
+            self.root_list.append(cnt) catch unreachable;
 
             // Push head command
             cnt.head = self.command_list.pushJump() catch unreachable;
@@ -1174,7 +1179,7 @@ pub fn Ui(comptime config: Config) type {
             // Clipping is reset here in case a root-container is made within
             // another root-containers's begin/end block; this prevents the inner
             // root-container being clipped to the outer
-            self.clip_stack.push(Rect.unclipped) catch unreachable;
+            self.clip_stack.append(Rect.unclipped) catch unreachable;
 
             // Draw frame
             if (opts.frame) self.drawFrame(cnt.rect, .WindowBg);
@@ -1254,7 +1259,7 @@ pub fn Ui(comptime config: Config) type {
         pub fn endWindow(self: *Self) void {
             self.popClipRect();
 
-            const slot = self.container_stack.pop() catch unreachable;
+            const slot = self.container_stack.pop();
             var cnt = &self.containers[slot];
 
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
@@ -1263,7 +1268,7 @@ pub fn Ui(comptime config: Config) type {
             self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
 
             // Pop container
-            const layout = self.layout_stack.pop() catch unreachable;
+            const layout = self.layout_stack.pop();
             cnt.content_size = layout.max.sub(layout.body.pt);
             self.popId();
 
@@ -1299,11 +1304,11 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) bool {
             const id = self.getId(name);
-            self.id_stack.push(id) catch return false;
+            self.id_stack.append(id) catch return false;
 
             const slot = self.getContainerById(id, opts) orelse unreachable;
 
-            if (self.container_stack.push(slot)) {
+            if (self.container_stack.append(slot)) {
                 var cnt = &self.containers[slot];
                 cnt.rect = self.layoutNext();
 
@@ -1311,7 +1316,7 @@ pub fn Ui(comptime config: Config) type {
                     if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
                     self.pushClipRect(cnt.body);
                 } else |_| {
-                    _ = self.container_stack.pop() catch unreachable;
+                    _ = self.container_stack.pop();
                     return false;
                 }
             } else |_| {
@@ -1325,8 +1330,8 @@ pub fn Ui(comptime config: Config) type {
             // NOTE (Matteo): This function is considered infallible because
             // it should be called only if beginPanel returned true
             self.popClipRect();
-            const layout = self.layout_stack.pop() catch unreachable;
-            const slot = self.container_stack.pop() catch unreachable;
+            const layout = self.layout_stack.pop();
+            const slot = self.container_stack.pop();
             self.containers[slot].content_size = layout.max.sub(layout.body.pt);
             self.popId();
         }
@@ -1684,7 +1689,7 @@ pub const MouseButtons = packed struct {
     right: bool = false,
     middle: bool = false,
 
-    pub usingnamespace util.BitSet(MouseButtons, u3);
+    pub usingnamespace BitSet(MouseButtons, u3);
 };
 
 pub const Keys = packed struct {
@@ -1694,7 +1699,7 @@ pub const Keys = packed struct {
     backspace: bool = false,
     enter: bool = false,
 
-    pub usingnamespace util.BitSet(Keys, u5);
+    pub usingnamespace BitSet(Keys, u5);
 };
 
 pub const Input = struct {
@@ -1764,7 +1769,7 @@ pub const ControlState = packed struct {
     hovered: bool = false,
     focused: bool = false,
 
-    pub usingnamespace util.BitSet(ControlState, u2);
+    pub usingnamespace BitSet(ControlState, u2);
 };
 
 //=================//
@@ -1838,8 +1843,138 @@ pub const TextBuffer = struct {
 pub const TextBoxState = packed struct {
     submit: bool = false,
     change: bool = false,
-    pub usingnamespace util.BitSet(TextBoxState, u2);
+    pub usingnamespace BitSet(TextBoxState, u2);
 };
+
+//=============//
+//  Utilities  //
+//=============//
+
+// TODO (Matteo): API review. At the moment multiple elements with the same ID
+// can be stored - this does not happen if the expected usage, which is to always
+// call 'get' before 'init', is followed, but this policy is not enforced in anyway.
+
+const PoolSlot = u32;
+
+fn Pool(comptime N: u32) type {
+    return struct {
+        items: [N]Item = [_]Item{.{}} ** N,
+
+        const Item = struct { id: Id = 0, last_update: u32 = 0 };
+
+        const Self = @This();
+
+        pub fn initSlot(self: *Self, id: Id, curr_frame: u32) PoolSlot {
+            assert(id != 0);
+
+            var slot = N;
+
+            if (curr_frame == 0) {
+                // First frame, find first free slot
+                for (self.items) |item, index| {
+                    if (item.id == 0) {
+                        slot = @intCast(PoolSlot, index);
+                        break;
+                    }
+                }
+            } else {
+                var frame = curr_frame;
+
+                // Find the least recently updated item
+                for (self.items) |item, index| {
+                    if (item.last_update < frame) {
+                        frame = item.last_update;
+                        slot = @intCast(PoolSlot, index);
+                    }
+                }
+            }
+
+            assert(slot < N);
+
+            self.items[slot].id = id;
+            self.items[slot].last_update = curr_frame;
+
+            return slot;
+        }
+
+        pub fn getSlot(self: *Self, id: Id) ?PoolSlot {
+            for (self.items) |item, index| {
+                if (item.id == id) return @intCast(PoolSlot, index);
+            }
+
+            return null;
+        }
+
+        pub fn updateSlot(self: *Self, index: PoolSlot, curr_frame: u32) void {
+            assert(index < self.items.len);
+            self.items[index].last_update = curr_frame;
+        }
+
+        pub fn freeSlot(self: *Self, index: PoolSlot) void {
+            assert(index < self.items.len);
+            self.items[index] = .{};
+        }
+    };
+}
+
+test "Pool" {
+    const expect = std.testing.expect;
+
+    var p = Pool(5){};
+
+    try expect(p.getSlot(1) == null);
+
+    try expect(p.initSlot(1, 0) == 0);
+    try expect(p.initSlot(2, 0) == 1);
+
+    try expect(p.getSlot(1).? == 0);
+    try expect(p.getSlot(2).? == 1);
+
+    try expect(p.initSlot(3, 5) == 0);
+    try expect(p.getSlot(3).? == 0);
+
+    p.updateSlot(0, 5);
+
+    try expect(p.initSlot(4, 5) == 1);
+    try expect(p.getSlot(4).? == 1);
+}
+
+/// Provide common operations for bitsets implemented as packed structs
+fn BitSet(comptime Struct: type, comptime Int: type) type {
+    comptime {
+        assert(@sizeOf(Struct) == @sizeOf(Int));
+    }
+
+    return struct {
+        pub inline fn none(a: Struct) bool {
+            return toInt(a) == 0;
+        }
+
+        pub inline fn any(a: Struct) bool {
+            return toInt(a) != 0;
+        }
+
+        pub inline fn toInt(self: Struct) Int {
+            return @bitCast(Int, self);
+        }
+
+        pub inline fn fromInt(value: Int) Struct {
+            return @bitCast(Struct, value);
+        }
+
+        pub inline fn unionWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) | toInt(b));
+        }
+
+        pub inline fn intersectWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) & toInt(b));
+        }
+
+        pub fn exceptWith(a: Struct, b: Struct) Struct {
+            return fromInt(toInt(a) & ~toInt(b));
+        }
+    };
+}
 
 //=====================//
 
