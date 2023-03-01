@@ -74,8 +74,6 @@ pub const OptionFlags = packed struct {
     popup: bool = false,
     closed: bool = false,
     expanded: bool = false,
-
-    pub usingnamespace BitSet(OptionFlags, u12);
 };
 
 pub const Container = struct {
@@ -1684,22 +1682,22 @@ test "Hash" {
 //  Input / interaction  //
 //=======================//
 
-pub const MouseButtons = packed struct {
+pub const MouseButtons = packed struct(u3) {
     left: bool = false,
     right: bool = false,
     middle: bool = false,
 
-    pub usingnamespace BitSet(MouseButtons, u3);
+    pub usingnamespace BitSet(MouseButtons);
 };
 
-pub const Keys = packed struct {
+pub const Keys = packed struct(u5) {
     shift: bool = false,
     ctrl: bool = false,
     alt: bool = false,
     backspace: bool = false,
     enter: bool = false,
 
-    pub usingnamespace BitSet(Keys, u5);
+    pub usingnamespace BitSet(Keys);
 };
 
 pub const Input = struct {
@@ -1768,8 +1766,6 @@ pub const Input = struct {
 pub const ControlState = packed struct {
     hovered: bool = false,
     focused: bool = false,
-
-    pub usingnamespace BitSet(ControlState, u2);
 };
 
 //=================//
@@ -1843,7 +1839,6 @@ pub const TextBuffer = struct {
 pub const TextBoxState = packed struct {
     submit: bool = false,
     change: bool = false,
-    pub usingnamespace BitSet(TextBoxState, u2);
 };
 
 //=============//
@@ -1940,9 +1935,13 @@ test "Pool" {
 }
 
 /// Provide common operations for bitsets implemented as packed structs
-fn BitSet(comptime Struct: type, comptime Int: type) type {
+fn BitSet(comptime Struct: type) type {
+    const info = @typeInfo(Struct).Struct;
+    const Int = info.backing_integer orelse unreachable;
+
     comptime {
-        assert(@sizeOf(Struct) == @sizeOf(Int));
+        assert(info.layout == .Packed);
+        assert(@sizeOf(Int) == @sizeOf(Struct));
     }
 
     return struct {
