@@ -337,39 +337,77 @@ fn styleWindow(ui: *Ui) void {
         defer ui.endWindow();
 
         const width = ui.getCurrentContainer().*.body.sz.x;
-        const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
-        ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
-        const fields = @typeInfo(mu.ColorId).Enum.fields;
+        ui.layoutRow(.{-1}, 0);
+        ui.label("Dimensions");
+        {
+            ui.layoutRow(.{ 80, -1 }, 0);
 
-        inline for (fields) |field| {
-            var color = &ui.style.colors[field.value];
-            ui.label(field.name);
-            _ = sliderU8(ui, &color.r);
-            _ = sliderU8(ui, &color.g);
-            _ = sliderU8(ui, &color.b);
-            _ = sliderU8(ui, &color.a);
-            ui.drawRect(ui.layoutNext(), color.*) catch unreachable;
+            ui.label("Indent");
+            _ = sliderInt(i32, ui, &ui.style.indent, 0, 32);
+
+            ui.label("Padding");
+            _ = sliderInt(i32, ui, &ui.style.padding, 1, 32);
+
+            ui.label("Spacing");
+            _ = sliderInt(i32, ui, &ui.style.spacing, 1, 32);
+
+            ui.label("Row height");
+            _ = sliderInt(i32, ui, &ui.style.size.y, 1, 32);
+
+            ui.label("Title height");
+            _ = sliderInt(i32, ui, &ui.style.title_height, 1, 32);
+
+            ui.label("Scrollbar size");
+            _ = sliderInt(i32, ui, &ui.style.scrollbar_size, 1, 32);
+
+            ui.label("Thumb size");
+            _ = sliderInt(i32, ui, &ui.style.thumb_size, 1, 32);
+        }
+
+        ui.layoutRow(.{-1}, 0);
+        ui.label("Colors");
+        {
+            const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
+            ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
+
+            const fields = @typeInfo(mu.ColorId).Enum.fields;
+
+            inline for (fields) |field| {
+                var color = &ui.style.colors[field.value];
+                ui.label(field.name);
+                _ = sliderU8(ui, &color.r);
+                _ = sliderU8(ui, &color.g);
+                _ = sliderU8(ui, &color.b);
+                _ = sliderU8(ui, &color.a);
+                ui.drawRect(ui.layoutNext(), color.*) catch unreachable;
+            }
         }
     }
 }
 
 fn sliderU8(ui: *Ui, value: *u8) bool {
+    return sliderInt(u8, ui, value, std.math.minInt(u8), std.math.maxInt(u8));
+}
+
+// TODO (Matteo): Use type deduction? Move to microui proper?
+fn sliderInt(comptime T: type, ui: *Ui, value: *T, min: T, max: T) bool {
     var tmp = @intToFloat(f32, value.*);
 
+    // NOTE (Matteo): This is required to have an unique id based on the value
+    // pointer, otherwise it would be generated using the temporary local pointer
     ui.pushId(value);
+    defer ui.popId();
 
     const res = ui.sliderEx(
         &tmp,
-        @intToFloat(f32, std.math.minInt(u8)),
-        @intToFloat(f32, std.math.maxInt(u8)),
+        @intToFloat(f32, min),
+        @intToFloat(f32, max),
         0,
         "{d:.0}",
         .{ .align_center = true },
     );
-    value.* = @floatToInt(u8, tmp);
-
-    ui.popId();
+    value.* = @floatToInt(T, tmp);
 
     return res;
 }
