@@ -40,26 +40,6 @@ const key_map = init: {
     break :init value;
 };
 
-const color_map = init: {
-    const len = std.meta.fields(mu.ColorId).len;
-    var value: [len][]const u8 = undefined;
-    value[@enumToInt(mu.ColorId.Text)] = "text:";
-    value[@enumToInt(mu.ColorId.Border)] = "border:";
-    value[@enumToInt(mu.ColorId.WindowBg)] = "windowbg:";
-    value[@enumToInt(mu.ColorId.TitleBg)] = "titlebg:";
-    value[@enumToInt(mu.ColorId.TitleText)] = "titletext:";
-    value[@enumToInt(mu.ColorId.PanelBg)] = "panelbg:";
-    value[@enumToInt(mu.ColorId.Button)] = "button:";
-    value[@enumToInt(mu.ColorId.ButtonHover)] = "buttonhover:";
-    value[@enumToInt(mu.ColorId.ButtonFocus)] = "buttonfocus:";
-    value[@enumToInt(mu.ColorId.Base)] = "base:";
-    value[@enumToInt(mu.ColorId.BaseHover)] = "basehover:";
-    value[@enumToInt(mu.ColorId.BaseFocus)] = "basefocus:";
-    value[@enumToInt(mu.ColorId.ScrollBase)] = "scrollbase:";
-    value[@enumToInt(mu.ColorId.ScrollThumb)] = "scrollthumb:";
-    break :init value;
-};
-
 var _logbuf = [_]u8{0} ** 64000;
 var logbuf = std.io.fixedBufferStream(_logbuf[0..]);
 var logbuf_updated = false;
@@ -360,9 +340,11 @@ fn styleWindow(ui: *Ui) void {
         const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
         ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
-        for (color_map) |label, i| {
-            var color = &ui.style.*.colors[i];
-            ui.label(label);
+        const fields = @typeInfo(mu.ColorId).Enum.fields;
+
+        inline for (fields) |field| {
+            var color = &ui.style.colors[field.value];
+            ui.label(field.name);
             _ = sliderU8(ui, &color.r);
             _ = sliderU8(ui, &color.g);
             _ = sliderU8(ui, &color.b);
