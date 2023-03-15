@@ -8,6 +8,8 @@ const mu = @import("microui");
 const Ui = mu.Ui(.{});
 const Font = mu.Font;
 
+const custom_theme = true;
+
 // Render API
 extern fn r_init(width: c_int, height: c_int) void;
 extern fn r_draw_rect(rect: mu.Rect, color: mu.Color) void;
@@ -61,7 +63,7 @@ pub fn main() !void {
 
     // NOTE (Matteo): Theming attempt
     var style = ui._style;
-    {
+    if (custom_theme) {
         style.setColor(.Text, rgba(0.90, 0.90, 0.90, 1.00));
         style.setColor(.Border, rgba(0.54, 0.57, 0.51, 0.50));
         style.setColor(.BorderShadow, rgba(0.14, 0.16, 0.11, 0.52));
@@ -166,7 +168,13 @@ pub fn main() !void {
                     buf[str.len] = 0;
                     r_draw_text(&buf, cmd.text.pos, cmd.text.color);
                 },
-                .Rect => r_draw_rect(cmd.rect.rect, cmd.rect.color),
+                .Rect => {
+                    if (cmd.rect.fill) {
+                        r_draw_rect(cmd.rect.rect, cmd.rect.color);
+                    } else {
+                        renderBox(cmd.rect.rect, cmd.rect.color);
+                    }
+                },
                 .Icon => r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
                 .Clip => r_set_clip_rect(cmd.clip.rect),
                 else => unreachable,
@@ -175,6 +183,40 @@ pub fn main() !void {
         r_flush();
         _ = c.SDL_GL_SwapWindow(window);
     }
+}
+
+fn renderBox(rect: mu.Rect, color: mu.Color) void {
+    // NOTE (Matteo): This was part of the original microui implementation
+    // I reviewed the drawing API in order to support both stroked and filled rects
+    // (and ellipses), so this implementation detail moved to the rendering layer
+
+    r_draw_rect(mu.Rect.init(
+        rect.pt.x + 1,
+        rect.pt.y,
+        rect.sz.x - 2,
+        1,
+    ), color);
+
+    r_draw_rect(mu.Rect.init(
+        rect.pt.x + 1,
+        rect.pt.y + rect.sz.y - 1,
+        rect.sz.x - 2,
+        1,
+    ), color);
+
+    r_draw_rect(mu.Rect.init(
+        rect.pt.x,
+        rect.pt.y,
+        1,
+        rect.sz.y,
+    ), color);
+
+    r_draw_rect(mu.Rect.init(
+        rect.pt.x + rect.sz.x - 1,
+        rect.pt.y,
+        1,
+        rect.sz.y,
+    ), color);
 }
 
 fn textWidth(ptr: ?*anyopaque, str: []const u8) i32 {

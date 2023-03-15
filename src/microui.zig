@@ -900,7 +900,7 @@ pub fn Ui(comptime config: Config) type {
                 const color = self.style.getColor(.Text);
                 const cursor = Rect.init(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
                 if (cursor.sz.x > 0 and cursor.sz.y > 0) {
-                    self.command_list.pushRect(cursor, color) catch {};
+                    self.command_list.fillRect(cursor, color) catch {};
                 }
                 self.drawTextClipped(font, buf.text, pos, color, clip) catch {};
             } else {
@@ -1453,7 +1453,7 @@ pub fn Ui(comptime config: Config) type {
 
             // TODO (Matteo): Review / improve.
             // Ignoring OOM here means something will not be drawn
-            self.command_list.pushRect(rect, self.style.getColor(color_id)) catch return;
+            self.command_list.fillRect(rect, self.style.getColor(color_id)) catch return;
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
@@ -1483,40 +1483,12 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn drawRect(self: *Self, rect: Rect, color: Color) !void {
             const clipped = self.peekClipRect().intersect(rect);
-            if (!clipped.isEmpty()) try self.command_list.pushRect(clipped, color);
+            if (!clipped.isEmpty()) try self.command_list.fillRect(clipped, color);
         }
 
-        pub fn drawBox(self: *Self, box: Rect, color: Color) !void {
-            const rect = self.peekClipRect().intersect(box);
-            if (rect.isEmpty()) return;
-
-            try self.command_list.pushRect(Rect.init(
-                rect.pt.x + 1,
-                rect.pt.y,
-                rect.sz.x - 2,
-                1,
-            ), color);
-
-            try self.command_list.pushRect(Rect.init(
-                rect.pt.x + 1,
-                rect.pt.y + rect.sz.y - 1,
-                rect.sz.x - 2,
-                1,
-            ), color);
-
-            try self.command_list.pushRect(Rect.init(
-                rect.pt.x,
-                rect.pt.y,
-                1,
-                rect.sz.y,
-            ), color);
-
-            try self.command_list.pushRect(Rect.init(
-                rect.pt.x + rect.sz.x - 1,
-                rect.pt.y,
-                1,
-                rect.sz.y,
-            ), color);
+        pub fn drawBox(self: *Self, rect: Rect, color: Color) !void {
+            const clipped = self.peekClipRect().intersect(rect);
+            if (!clipped.isEmpty()) try self.command_list.strokeRect(clipped, color);
         }
 
         pub fn drawText(
@@ -1665,6 +1637,20 @@ pub const Rect = extern struct {
         }
 
         return .Part;
+    }
+};
+
+/// Represents an ellipse (or a circle as a degenerate case with equal radii)
+pub const Ellipse = extern struct {
+    center: Vec2,
+    radii: Vec2,
+
+    pub inline fn circle(center: Vec2, radius: i32) Ellipse {
+        return .{ .center = center, .radii = .{ .x = radius, .y = radius } };
+    }
+
+    pub inline fn isCircle(ell: Ellipse) bool {
+        return (ell.radii.x == ell.radii.y);
     }
 };
 

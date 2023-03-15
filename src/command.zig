@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const mu = @import("microui.zig");
 const Vec2 = mu.Vec2;
 const Rect = mu.Rect;
+const Ellipse = mu.Ellipse;
 const Color = mu.Color;
 const Icon = mu.Icon;
 const Font = mu.Font;
@@ -20,9 +21,11 @@ pub const CommandType = enum(u16) {
     None,
     Jump,
     Clip,
-    Rect,
     Text,
     Icon,
+    Line,
+    Rect,
+    Circ,
     _,
 };
 
@@ -33,8 +36,10 @@ pub const CommandType = enum(u16) {
 pub const BaseCommand = extern struct { type: CommandType, size: CommandHandle };
 pub const JumpCommand = extern struct { base: BaseCommand, dst: CommandHandle };
 pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
-pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color };
 pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
+pub const LineCommand = extern struct { base: BaseCommand, p0: Vec2, p1: Vec2, color: Color };
+pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color, fill: bool };
+pub const CircCommand = extern struct { base: BaseCommand, ellipse: Ellipse, color: Color, fill: bool };
 
 pub const TextCommand = extern struct {
     base: BaseCommand,
@@ -55,9 +60,11 @@ pub const Command = extern union {
     base: BaseCommand,
     jump: JumpCommand,
     clip: ClipCommand,
-    rect: RectCommand,
     text: TextCommand,
     icon: IconCommand,
+    line: LineCommand,
+    rect: RectCommand,
+    circ: CircCommand,
 };
 
 pub const CommandHandle = u32;
@@ -114,21 +121,6 @@ pub fn CommandList(comptime N: u32) type {
             cmd.clip.rect = rect;
         }
 
-        pub fn pushRect(self: *Self, rect: Rect, color: Color) !void {
-            const pos = try self.pushCmd(.Rect);
-            var cmd = self.get(pos);
-            cmd.rect.rect = rect;
-            cmd.rect.color = color;
-        }
-
-        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
-            const pos = try self.pushCmd(.Icon);
-            var cmd = self.get(pos);
-            cmd.icon.id = id;
-            cmd.icon.rect = rect;
-            cmd.icon.color = color;
-        }
-
         pub fn pushText(
             self: *Self,
             str: []const u8,
@@ -153,6 +145,67 @@ pub fn CommandList(comptime N: u32) type {
             assert(buf.len == str.len);
 
             std.mem.copy(u8, buf, str);
+        }
+
+        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
+            const pos = try self.pushCmd(.Icon);
+            var cmd = self.get(pos);
+            cmd.icon.id = id;
+            cmd.icon.rect = rect;
+            cmd.icon.color = color;
+        }
+
+        pub fn strokeLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) !void {
+            const pos = try self.pushCmd(.Line);
+            var cmd = self.get(pos);
+            cmd.line.p0 = p0;
+            cmd.line.p1 = p1;
+            cmd.line.color = color;
+        }
+
+        pub fn fillRect(self: *Self, rect: Rect, color: Color) !void {
+            try self.pushRect(rect, color, true);
+        }
+
+        pub fn strokeRect(self: *Self, rect: Rect, color: Color) !void {
+            try self.pushRect(rect, color, false);
+        }
+
+        pub fn fillCircle(self: *Self, center: Vec2, radius: Vec2, color: Color) !void {
+            try self.pushEllipse(center, Ellipse.circle(center, radius), color, true);
+        }
+
+        pub fn strokeCircle(self: *Self, center: Vec2, radius: Vec2, color: Color) !void {
+            try self.pushEllipse(center, Ellipse.circle(center, radius), color, false);
+        }
+
+        pub fn fillEllipse(self: *Self, ellipse: Ellipse, color: Color) !void {
+            try self.pushEllipse(ellipse, color, true);
+        }
+
+        pub fn strokeEllipse(self: *Self, ellipse: Ellipse, color: Color) !void {
+            try self.pushEllipse(ellipse, color, false);
+        }
+
+        fn pushRect(self: *Self, rect: Rect, color: Color, fill: bool) !void {
+            const pos = try self.pushCmd(.Rect);
+            var cmd = self.get(pos);
+            cmd.rect.rect = rect;
+            cmd.rect.color = color;
+            cmd.rect.fill = fill;
+        }
+
+        fn pushEllipse(
+            self: *Self,
+            ellipse: Ellipse,
+            color: Color,
+            fill: bool,
+        ) !void {
+            const pos = try self.pushCmd(.Circ);
+            var cmd = self.get(pos);
+            cmd.circ.ellipse = ellipse;
+            cmd.circ.color = color;
+            cmd.circ.fill = fill;
         }
 
         pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) !CommandHandle {
