@@ -36,6 +36,7 @@ const key_map = init: {
     value[c.SDLK_LALT & 0xff].alt = true;
     value[c.SDLK_RALT & 0xff].alt = true;
     value[c.SDLK_RETURN & 0xff].enter = true;
+    value[c.SDLK_KP_ENTER & 0xff].enter = true;
     value[c.SDLK_BACKSPACE & 0xff].backspace = true;
     break :init value;
 };
@@ -57,6 +58,32 @@ pub fn main() !void {
     };
     var ui = try ui_alloc.create(Ui);
     ui.init(&ui_font, null);
+
+    // NOTE (Matteo): Theming attempt
+    var style = ui._style;
+    {
+        style.setColor(.Text, rgba(0.90, 0.90, 0.90, 1.00));
+        style.setColor(.Border, rgba(0.54, 0.57, 0.51, 0.50));
+        style.setColor(.BorderShadow, rgba(0.14, 0.16, 0.11, 0.52));
+        style.setColor(.TitleBg, rgba(0.24, 0.27, 0.20, 1.00));
+        style.setColor(.TitleText, style.getColor(.Text));
+        style.setColor(.WindowBg, rgba(0.29, 0.34, 0.26, 1.00));
+        style.setColor(.Header, rgba(0.35, 0.42, 0.31, 1.00));
+        style.setColor(.HeaderHover, rgba(0.35, 0.42, 0.31, 0.60));
+        style.setColor(.HeaderFocus, rgba(0.54, 0.57, 0.51, 0.50));
+        style.setColor(.Button, rgba(0.29, 0.34, 0.26, 0.40));
+        style.setColor(.ButtonHover, rgba(0.35, 0.42, 0.31, 1.00));
+        style.setColor(.ButtonFocus, rgba(0.54, 0.57, 0.51, 0.50));
+        style.setColor(.Base, rgba(0.29, 0.34, 0.26, 1.00));
+        style.setColor(.Base, rgba(0.24, 0.27, 0.20, 1.00));
+        style.setColor(.BaseHover, rgba(0.27, 0.30, 0.23, 1.00));
+        style.setColor(.BaseFocus, rgba(0.30, 0.34, 0.26, 1.00));
+        style.setColor(.ScrollBase, rgba(0.35, 0.42, 0.31, 1.00));
+        style.setColor(.ScrollThumb, rgba(0.23, 0.27, 0.21, 1.00));
+        // style.setColor(.ScrollThumb, rgba(0.25, 0.30, 0.22, 1.00));
+        // style.setColor(.ScrollThumb, rgba(0.28, 0.32, 0.24, 1.00));
+    }
+    ui.style = &style;
 
     // init SDL and renderer
     _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
@@ -339,8 +366,7 @@ fn styleWindow(ui: *Ui) void {
         const width = ui.getCurrentContainer().*.body.sz.x;
 
         ui.layoutRow(.{-1}, 0);
-        ui.label("Dimensions");
-        {
+        if (ui.header("Dimensions", .{})) {
             ui.layoutRow(.{ 80, -1 }, 0);
 
             ui.label("Indent");
@@ -366,8 +392,7 @@ fn styleWindow(ui: *Ui) void {
         }
 
         ui.layoutRow(.{-1}, 0);
-        ui.label("Colors");
-        {
+        if (ui.header("Colors", .{ .expanded = true })) {
             const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
             ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
@@ -410,4 +435,13 @@ fn sliderInt(comptime T: type, ui: *Ui, value: *T, min: T, max: T) bool {
     value.* = @floatToInt(T, tmp);
 
     return res;
+}
+
+fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
+    return .{
+        .r = @floatToInt(u8, std.math.clamp(r * 255, 0, 255)),
+        .g = @floatToInt(u8, std.math.clamp(g * 255, 0, 255)),
+        .b = @floatToInt(u8, std.math.clamp(b * 255, 0, 255)),
+        .a = @floatToInt(u8, std.math.clamp(a * 255, 0, 255)),
+    };
 }
