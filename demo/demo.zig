@@ -8,6 +8,8 @@ const mu = @import("microui");
 const Ui = mu.Ui(.{});
 const Font = mu.Font;
 
+const Renderer = @import("renderer.zig");
+
 const custom_theme = true;
 
 // Render API

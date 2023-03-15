@@ -3,6 +3,11 @@ const builtin = @import("builtin");
 
 const Builder = std.build.Builder;
 
+pub const microui = std.build.Pkg{
+    .name = "microui",
+    .source = .{ .path = "src/microui.zig" },
+};
+
 fn setupDemo(
     b: *Builder,
     target: std.zig.CrossTarget,
@@ -103,14 +108,11 @@ pub fn build(b: *Builder) void {
         &flags,
     );
     demo_z.linkLibrary(lib);
-    demo_z.addPackage(std.build.Pkg{
-        .name = b.dupe("microui"),
-        .source = .{ .path = b.dupe("src/microui.zig") },
-    });
+    demo_z.addPackage(microui);
     setupDemo(b, target, demo_z, b.step("z", "Run the Zig demo app"));
 
     // Configure test step
-    const tests = b.addTest("src/microui.zig");
+    const tests = b.addTest(microui.source.path);
     tests.setTarget(target);
     tests.setBuildMode(mode);
 
