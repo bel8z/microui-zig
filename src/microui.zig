@@ -31,13 +31,17 @@ pub const Clip = enum(u2) {
     All,
 };
 
-pub const ColorId = enum(u4) {
+pub const ColorId = enum(u5) {
     Text,
     Border,
+    BorderShadow,
     WindowBg,
     TitleBg,
     TitleText,
     PanelBg,
+    Header,
+    HeaderHover,
+    HeaderFocus,
     Button,
     ButtonHover,
     ButtonFocus,
@@ -99,10 +103,14 @@ pub const Style = struct {
     colors: [color_count]Color = [_]Color{
         .{ .r = 230, .g = 230, .b = 230, .a = 255 }, // Text
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // Border
+        .{ .r = 0, .g = 0, .b = 0, .a = 0 }, // BorderShadow
         .{ .r = 50, .g = 50, .b = 50, .a = 255 }, // WindowBg
         .{ .r = 25, .g = 25, .b = 25, .a = 255 }, // TitleBg
         .{ .r = 240, .g = 240, .b = 240, .a = 255 }, // TitleText
         .{ .r = 0, .g = 0, .b = 0, .a = 0 }, // PanelBg
+        .{ .r = 75, .g = 75, .b = 75, .a = 255 }, // Header
+        .{ .r = 95, .g = 95, .b = 95, .a = 255 }, // HeaderHover
+        .{ .r = 115, .g = 115, .b = 115, .a = 255 }, // HeaderFocus
         .{ .r = 75, .g = 75, .b = 75, .a = 255 }, // Button
         .{ .r = 95, .g = 95, .b = 95, .a = 255 }, // ButtonHover
         .{ .r = 115, .g = 115, .b = 115, .a = 255 }, // ButtonFocus
@@ -114,6 +122,16 @@ pub const Style = struct {
     },
 
     const color_count = @typeInfo(ColorId).Enum.fields.len;
+
+    /// Helper to access the color value by id without casting the enum explicitly
+    pub inline fn getColor(self: *const Style, id: ColorId) Color {
+        return self.colors[@enumToInt(id)];
+    }
+
+    /// Helper to set the color value by id without casting the enum explicitly
+    pub inline fn setColor(self: *Style, id: ColorId, color: Color) void {
+        self.colors[@enumToInt(id)] = color;
+    }
 };
 
 /// Compile-time configuration parameters
@@ -713,7 +731,7 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn text(self: *Self, str: []const u8) void {
             // TODO (Matteo): Handle proper text shaping (via user callbacks?)
-            const color = self.getColor(.Text);
+            const color = self.style.getColor(.Text);
             const font = self.style.font;
 
             self.layoutBeginColumn();
@@ -786,7 +804,7 @@ pub fn Ui(comptime config: Config) type {
 
             // Draw
             self.drawButton(state, rect, opts);
-            if (icon != .None) self.drawIcon(icon, rect, self.getColor(.Text)) catch unreachable;
+            if (icon != .None) self.drawIcon(icon, rect, self.style.getColor(.Text)) catch unreachable;
             if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
             // Handle click
@@ -811,7 +829,7 @@ pub fn Ui(comptime config: Config) type {
             const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
             self.drawBase(state, box, .{});
 
-            if (checked.*) self.drawIcon(.Check, box, self.getColor(.Text)) catch unreachable;
+            if (checked.*) self.drawIcon(.Check, box, self.style.getColor(.Text)) catch unreachable;
 
             self.drawControlText(
                 str,
@@ -879,7 +897,7 @@ pub fn Ui(comptime config: Config) type {
 
                 // Active text and cursor
                 const clip = rect.intersect(self.peekClipRect());
-                const color = self.getColor(.Text);
+                const color = self.style.getColor(.Text);
                 const cursor = Rect.init(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
                 if (cursor.sz.x > 0 and cursor.sz.y > 0) {
                     self.command_list.pushRect(cursor, color) catch {};
@@ -1122,15 +1140,15 @@ pub fn Ui(comptime config: Config) type {
 
             // Draw
             if (is_treenode) {
-                if (state.hovered) self.drawFrame(r, .ButtonHover);
+                if (state.hovered) self.drawFrame(r, .HeaderHover);
             } else {
-                self.drawButton(state, r, .{});
+                self.drawHeader(state, r, .{});
             }
 
             if (self.drawIcon(
                 if (expanded) .Expanded else .Collapsed,
                 Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
-                self.getColor(.Text),
+                self.style.getColor(.Text),
             )) {
                 const delta_x = r.sz.y - self.style.padding;
                 r.pt.x += delta_x;
@@ -1213,7 +1231,7 @@ pub fn Ui(comptime config: Config) type {
                     if (state.focused and self.input.mouse_pressed.left) {
                         cnt.open = false;
                     }
-                    self.drawIcon(.Close, rect, self.getColor(.TitleText)) catch unreachable;
+                    self.drawIcon(.Close, rect, self.style.getColor(.TitleText)) catch unreachable;
                 }
 
                 // Remove title from body
@@ -1336,6 +1354,25 @@ pub fn Ui(comptime config: Config) type {
 
         //=== Drawing ===//
 
+        pub fn drawHeader(
+            self: *Self,
+            state: ControlState,
+            rect: Rect,
+            opts: OptionFlags,
+        ) void {
+            if (opts.frame) {
+                self.drawFrame(
+                    rect,
+                    if (state.focused)
+                        .HeaderFocus
+                    else if (state.hovered)
+                        .HeaderHover
+                    else
+                        .Header,
+                );
+            }
+        }
+
         pub fn drawButton(
             self: *Self,
             state: ControlState,
@@ -1399,7 +1436,7 @@ pub fn Ui(comptime config: Config) type {
                 font,
                 str,
                 pos,
-                self.getColor(color),
+                self.style.getColor(color),
                 rect.intersect(self.peekClipRect()),
             ) catch unreachable;
         }
@@ -1416,15 +1453,23 @@ pub fn Ui(comptime config: Config) type {
 
             // TODO (Matteo): Review / improve.
             // Ignoring OOM here means something will not be drawn
-            self.command_list.pushRect(rect, self.getColor(color_id)) catch return;
+            self.command_list.pushRect(rect, self.style.getColor(color_id)) catch return;
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
                 else => {
-                    const border = self.getColor(.Border);
-                    if (border.a != 0) {
-                        self.drawBox(rect.expand(1), border) catch return;
+                    const bound = rect.expand(1);
+
+                    const shadow = self.style.getColor(.BorderShadow);
+                    if (shadow.a != 0) {
+                        self.drawBox(
+                            bound.move(Vec2{ .x = 1, .y = 1 }),
+                            shadow,
+                        ) catch return;
                     }
+
+                    const border = self.style.getColor(.Border);
+                    if (border.a != 0) self.drawBox(bound, border) catch return;
                 },
             }
         }
@@ -1524,13 +1569,6 @@ pub fn Ui(comptime config: Config) type {
                 },
             }
         }
-
-        //=== Internals ===//
-
-        inline fn getColor(self: *const Self, id: ColorId) Color {
-            // NOTE (Matteo): Helper to avoid casting the id everywhere - ugly?
-            return self.style.colors[@enumToInt(id)];
-        }
     };
 }
 
@@ -1581,6 +1619,10 @@ pub const Rect = extern struct {
             .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
             .sz = Vec2{ .x = rect.sz.x + 2 * n, .y = rect.sz.y + 2 * n },
         };
+    }
+
+    pub fn move(rect: Rect, v: Vec2) Rect {
+        return Rect{ .pt = rect.pt.add(v), .sz = rect.sz };
     }
 
     pub fn intersect(ls: Rect, rs: Rect) Rect {
