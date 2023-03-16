@@ -24,6 +24,7 @@ test "MicroUi" {
 
 pub const Id = u32;
 pub const command = @import("command.zig");
+pub const atlas = @import("atlas.zig");
 
 pub const Clip = enum(u2) {
     None,

@@ -12,17 +12,6 @@ const Renderer = @import("renderer.zig");
 
 const custom_theme = true;
 
-// Render API
-extern fn r_init(width: c_int, height: c_int) void;
-extern fn r_draw_rect(rect: mu.Rect, color: mu.Color) void;
-extern fn r_draw_text(text: [*]const u8, pos: mu.Vec2, color: mu.Color) void;
-extern fn r_draw_icon(id: mu.Icon, rect: mu.Rect, color: mu.Color) void;
-extern fn r_get_text_width(text: [*]const u8, len: c_int) c_int;
-extern fn r_get_text_height() c_int;
-extern fn r_set_clip_rect(rect: mu.Rect) void;
-extern fn r_clear(color: mu.Color) void;
-extern fn r_flush() void;
-
 const button_map = init: {
     var value = [_]mu.MouseButtons{.{}} ** 256;
     value[c.SDL_BUTTON_LEFT & 0xff].left = true;
@@ -53,11 +42,31 @@ var bg = mu.Color{ .r = 90, .g = 95, .b = 100, .a = 255 };
 var checks = [3]bool{ true, false, true };
 
 pub fn main() !void {
-    // init microui
     const ui_alloc = std.heap.page_allocator;
+
+    // init SDL and renderer
+    _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
+
+    const width = 800;
+    const height = 600;
+
+    var window = c.SDL_CreateWindow(
+        null,
+        c.SDL_WINDOWPOS_UNDEFINED,
+        c.SDL_WINDOWPOS_UNDEFINED,
+        width,
+        height,
+        c.SDL_WINDOW_OPENGL,
+    );
+    _ = c.SDL_GL_CreateContext(window);
+
+    var r = try Renderer.init(width, height, ui_alloc);
+    defer ui_alloc.destroy(r);
+
+    // init microui
     var ui_font = Font{
-        .ptr = null,
-        .text_height = r_get_text_height(),
+        .ptr = r,
+        .text_height = r.getTextHeight(),
         .text_width = textWidth,
     };
     var ui = try ui_alloc.create(Ui);
@@ -88,24 +97,6 @@ pub fn main() !void {
         // style.setColor(.ScrollThumb, rgba(0.28, 0.32, 0.24, 1.00));
     }
     ui.style = &style;
-
-    // init SDL and renderer
-    _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
-
-    const width = 800;
-    const height = 600;
-
-    var window = c.SDL_CreateWindow(
-        null,
-        c.SDL_WINDOWPOS_UNDEFINED,
-        c.SDL_WINDOWPOS_UNDEFINED,
-        width,
-        height,
-        c.SDL_WINDOW_OPENGL,
-    );
-    _ = c.SDL_GL_CreateContext(window);
-
-    r_init(width, height);
 
     // main loop
     var input = ui.getInput();
@@ -157,7 +148,7 @@ pub fn main() !void {
 
         // TODO (Matteo): TEST RENDERING!!!
         // render
-        r_clear(bg);
+        r.clear(bg);
 
         var iter = ui.command_list.iter();
         while (iter.next()) |cmd| {
@@ -168,52 +159,52 @@ pub fn main() !void {
                     std.debug.assert(str.len < buf.len);
                     std.mem.copy(u8, buf[0..], str);
                     buf[str.len] = 0;
-                    r_draw_text(&buf, cmd.text.pos, cmd.text.color);
+                    r.drawText(&buf, cmd.text.pos, cmd.text.color);
                 },
                 .Rect => {
                     if (cmd.rect.fill) {
-                        r_draw_rect(cmd.rect.rect, cmd.rect.color);
+                        r.drawRect(cmd.rect.rect, cmd.rect.color);
                     } else {
-                        renderBox(cmd.rect.rect, cmd.rect.color);
+                        renderBox(r, cmd.rect.rect, cmd.rect.color);
                     }
                 },
-                .Icon => r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
-                .Clip => r_set_clip_rect(cmd.clip.rect),
+                .Icon => r.drawIcon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
+                .Clip => r.setClipRect(cmd.clip.rect),
                 else => unreachable,
             }
         }
-        r_flush();
+        r.flush();
         _ = c.SDL_GL_SwapWindow(window);
     }
 }
 
-fn renderBox(rect: mu.Rect, color: mu.Color) void {
+fn renderBox(r: *Renderer, rect: mu.Rect, color: mu.Color) void {
     // NOTE (Matteo): This was part of the original microui implementation
     // I reviewed the drawing API in order to support both stroked and filled rects
     // (and ellipses), so this implementation detail moved to the rendering layer
 
-    r_draw_rect(mu.Rect.init(
+    r.drawRect(mu.Rect.init(
         rect.pt.x + 1,
         rect.pt.y,
         rect.sz.x - 2,
         1,
     ), color);
 
-    r_draw_rect(mu.Rect.init(
+    r.drawRect(mu.Rect.init(
         rect.pt.x + 1,
         rect.pt.y + rect.sz.y - 1,
         rect.sz.x - 2,
         1,
     ), color);
 
-    r_draw_rect(mu.Rect.init(
+    r.drawRect(mu.Rect.init(
         rect.pt.x,
         rect.pt.y,
         1,
         rect.sz.y,
     ), color);
 
-    r_draw_rect(mu.Rect.init(
+    r.drawRect(mu.Rect.init(
         rect.pt.x + rect.sz.x - 1,
         rect.pt.y,
         1,
@@ -222,8 +213,12 @@ fn renderBox(rect: mu.Rect, color: mu.Color) void {
 }
 
 fn textWidth(ptr: ?*anyopaque, str: []const u8) i32 {
-    _ = ptr;
-    return r_get_text_width(str.ptr, @intCast(c_int, str.len));
+    const r = opaqueCast(Renderer, ptr orelse unreachable);
+    return r.getTextWidth(str);
+}
+
+fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
+    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
 }
 
 fn writeLog(text: []const u8) void {
