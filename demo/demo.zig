@@ -151,25 +151,22 @@ pub fn main() !void {
         r.clear(bg);
 
         var iter = ui.command_list.iter();
-        while (iter.next()) |cmd| {
-            switch (cmd.type) {
-                .Text => {
-                    var buf: [1024]u8 = undefined;
-                    const str = cmd.text.read();
-                    std.debug.assert(str.len < buf.len);
-                    std.mem.copy(u8, buf[0..], str);
-                    buf[str.len] = 0;
-                    r.drawText(&buf, cmd.text.pos, cmd.text.color);
+        while (true) {
+            const what = iter.next();
+            switch (what) {
+                .None => break,
+                .Text => |cmd| {
+                    r.drawText(cmd.str, cmd.pos, cmd.color);
                 },
-                .Rect => {
-                    if (cmd.rect.fill) {
-                        r.drawRect(cmd.rect.rect, cmd.rect.color);
+                .Rect => |cmd| {
+                    if (cmd.opts.fill) {
+                        r.drawRect(cmd.rect, cmd.color);
                     } else {
-                        renderBox(r, cmd.rect.rect, cmd.rect.color);
+                        renderBox(r, cmd.rect, cmd.color);
                     }
                 },
-                .Icon => r.drawIcon(cmd.icon.id, cmd.icon.rect, cmd.icon.color),
-                .Clip => r.setClipRect(cmd.clip.rect),
+                .Icon => |cmd| r.drawIcon(cmd.id, cmd.rect, cmd.color),
+                .Clip => |cmd| r.setClipRect(cmd),
                 else => unreachable,
             }
         }

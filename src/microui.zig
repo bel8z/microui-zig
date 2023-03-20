@@ -82,8 +82,8 @@ pub const OptionFlags = packed struct {
 };
 
 pub const Container = struct {
-    head: command.CommandHandle = 0,
-    tail: command.CommandHandle = 0,
+    head: u32 = 0,
+    tail: u32 = 0,
     rect: Rect = .{},
     body: Rect = .{},
     content_size: Vec2 = .{},
@@ -331,16 +331,12 @@ pub fn Ui(comptime config: Config) type {
             for (roots) |cnt, i| {
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
-                var cmd = if (i == 0)
-                    self.command_list.get(0)
-                else
-                    self.command_list.get(roots[i - 1].tail);
-
-                cmd.jump.dst = cnt.head + self.command_list.get(cnt.head).base.size;
+                var jump = if (i == 0) 0 else roots[i - 1].tail;
+                self.command_list.setJumpLocation(jump, self.command_list.getNextLocation(cnt.head));
 
                 // Make the last container's tail jump to the end of command list
                 if (i == roots.len - 1) {
-                    self.command_list.get(cnt.tail).jump.dst = self.command_list.tail;
+                    self.command_list.setJumpLocation(cnt.tail, self.command_list.tail);
                 }
             }
         }
@@ -905,7 +901,7 @@ pub fn Ui(comptime config: Config) type {
                 const color = self.style.getColor(.Text);
                 const cursor = Rect.init(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
                 if (cursor.sz.x > 0 and cursor.sz.y > 0) {
-                    self.command_list.fillRect(cursor, color) catch {};
+                    self.command_list.pushRect(cursor, color, .{}) catch {};
                 }
                 self.drawTextClipped(font, buf.text, pos, color, clip) catch {};
             } else {
@@ -1287,7 +1283,7 @@ pub fn Ui(comptime config: Config) type {
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
             // on initing these are done in 'endFrame'
             cnt.tail = self.command_list.pushJump() catch unreachable;
-            self.command_list.get(cnt.head).jump.dst = self.command_list.tail;
+            self.command_list.setJumpLocation(cnt.head, self.command_list.tail);
 
             // Pop container
             const layout = self.layout_stack.pop();
@@ -1425,7 +1421,7 @@ pub fn Ui(comptime config: Config) type {
 
             // TODO (Matteo): Review / improve.
             // Ignoring OOM here means something will not be drawn
-            self.command_list.fillRect(rect, self.style.getColor(color_id)) catch return;
+            self.command_list.pushRect(rect, self.style.getColor(color_id), .{}) catch return;
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
@@ -1455,12 +1451,16 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn drawRect(self: *Self, rect: Rect, color: Color) !void {
             const clipped = self.peekClipRect().intersect(rect);
-            if (!clipped.isEmpty()) try self.command_list.fillRect(clipped, color);
+            if (!clipped.isEmpty()) try self.command_list.pushRect(clipped, color, .{});
         }
 
         pub fn drawBox(self: *Self, rect: Rect, color: Color) !void {
             const clipped = self.peekClipRect().intersect(rect);
-            if (!clipped.isEmpty()) try self.command_list.strokeRect(clipped, color);
+            if (!clipped.isEmpty()) try self.command_list.pushRect(
+                clipped,
+                color,
+                .{ .fill = false },
+            );
         }
 
         pub fn drawText(

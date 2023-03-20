@@ -17,7 +17,10 @@ const Color = mu.Color;
 const Icon = mu.Icon;
 const Font = mu.Font;
 
-pub const CommandType = enum(u16) {
+// TODO (Matteo): Review - 'None' is used purely to stop the iteration of commands;
+// I opted for this instead of an optional return value because there's room in the
+// tag to store the information (don't know if the Zig compiler can do the trick on its own)
+pub const CommandType = enum(u32) {
     None,
     Jump,
     Clip,
@@ -26,220 +29,370 @@ pub const CommandType = enum(u16) {
     Line,
     Rect,
     Circ,
-    _,
+    User,
 };
 
-// TODO (Matteo): Rethink command implementation.
-// The current solution works pretty well in C but seems a bit foreign in Zig;
-// furthermore, I'd like to provide easy extension with user-defined commands.
-
-pub const BaseCommand = extern struct { type: CommandType, size: CommandHandle };
-pub const JumpCommand = extern struct { base: BaseCommand, dst: CommandHandle };
-pub const ClipCommand = extern struct { base: BaseCommand, rect: Rect };
-pub const IconCommand = extern struct { base: BaseCommand, rect: Rect, id: Icon, color: Color };
-pub const LineCommand = extern struct { base: BaseCommand, p0: Vec2, p1: Vec2, color: Color };
-pub const RectCommand = extern struct { base: BaseCommand, rect: Rect, color: Color, fill: bool };
-pub const CircCommand = extern struct { base: BaseCommand, ellipse: Ellipse, color: Color, fill: bool };
-
-pub const TextCommand = extern struct {
-    base: BaseCommand,
-    font: *const Font,
-    pos: Vec2,
-    color: Color,
-    len: CommandHandle,
-
-    pub fn read(cmd: *const TextCommand) []const u8 {
-        const pos = @ptrToInt(cmd) + @sizeOf(TextCommand);
-        const ptr = @intToPtr([*]const u8, pos);
-        return ptr[0..cmd.len];
-    }
+pub const Command = union(CommandType) {
+    None,
+    Jump: u32,
+    Clip: Rect,
+    Text: TextCommand,
+    Icon: IconCommand,
+    Line: LineCommand,
+    Rect: RectCommand,
+    Circ: CircCommand,
+    User: []const u8,
 };
 
-pub const Command = extern union {
-    type: CommandType,
-    base: BaseCommand,
-    jump: JumpCommand,
-    clip: ClipCommand,
-    text: TextCommand,
-    icon: IconCommand,
-    line: LineCommand,
-    rect: RectCommand,
-    circ: CircCommand,
+pub const TextCommand = struct { str: []const u8, font: *const Font, pos: Vec2, color: Color };
+pub const IconCommand = struct { rect: Rect, color: Color, id: Icon };
+pub const LineCommand = struct { p0: Vec2, p1: Vec2, color: Color };
+pub const RectCommand = struct { rect: Rect, color: Color, opts: CommandOptions };
+pub const CircCommand = struct { ellipse: Ellipse, color: Color, opts: CommandOptions };
+
+pub const CommandOptions = packed struct(u32) {
+    fill: bool = true,
+    _dummy: u31 = 0,
 };
 
-pub const CommandHandle = u32;
-
+// TODO (Matteo): Review - The storage implementation here is a bit ugly.
+// The idea is to encode commands in a (not very much) packed format, so all
+// data is aligned on 32 bit boundaries. During iteration commands are decoded
+// in a more user-friendly tagged union type.
 pub fn CommandList(comptime N: u32) type {
     return struct {
         buffer: [N]u8 align(alignment) = undefined,
-        tail: CommandHandle = 0,
+        tail: u32 = 0,
 
-        const alignment = @alignOf(Command);
+        const header_size = @sizeOf(CommandType);
+        const alignment = @alignOf(u32);
         const Self = @This();
 
-        const Iterator = struct {
-            list: *Self,
-            pos: CommandHandle = 0,
-
-            pub fn next(self: *Iterator) ?*const Command {
-                while (self.pos != self.list.tail) {
-                    const cmd = self.list.get(self.pos);
-
-                    if (cmd.base.type == .Jump) {
-                        self.pos = cmd.jump.dst;
-                    } else {
-                        self.pos += cmd.base.size;
-                        return cmd;
-                    }
-                }
-
-                return null;
-            }
-        };
+        //=== Basic API ===//
 
         pub inline fn clear(self: *Self) void {
             self.tail = 0;
         }
 
-        pub inline fn get(self: *Self, pos: CommandHandle) *Command {
-            return @ptrCast(*Command, @alignCast(alignment, &self.buffer[pos]));
+        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) !*CommandPayload(cmd_type) {
+            const T = CommandPayload(cmd_type);
+            comptime assert(@alignOf(T) == alignment);
+
+            const size = @sizeOf(T);
+            const pos = try self.pushSize(cmd_type, size);
+            return self.getPtr(T, pos);
         }
 
-        pub inline fn iter(self: *Self) Iterator {
-            return Iterator{ .list = self };
+        fn CommandPayload(comptime cmd_type: CommandType) type {
+            const cmd_name = @tagName(cmd_type);
+            const cmd_fields = @typeInfo(Command).Union.fields;
+
+            switch (cmd_type) {
+                .Jump => @compileError(cmd_name ++ " requires explicit call to pushJump"),
+                .Text => @compileError(cmd_name ++ " requires explicit call to pushText"),
+                .User => @compileError(cmd_name ++ " requires explicit call to pushUser"),
+                .None => @compileError(cmd_name ++ " command is not supported"),
+                inline else => return cmd_fields[@enumToInt(cmd_type)].field_type,
+            }
         }
 
-        pub fn pushJump(self: *Self) !CommandHandle {
-            const pos = try self.pushCmd(.Jump);
-            self.get(pos).jump.dst = 0;
-            return pos;
+        fn pushSize(self: *Self, cmd_type: CommandType, size: usize) !u32 {
+            if (size > self.buffer.len) return error.OutOfMemory;
+
+            // Compute payload offset and check available storage
+            const payload_pos = self.tail + header_size;
+            assert(std.mem.isAligned(payload_pos, alignment));
+            if (self.buffer.len - self.tail < payload_pos + size) return error.OutOfMemory;
+
+            // Write header at current offset
+            assert(std.mem.isAligned(self.tail, alignment));
+            const header = std.mem.bytesAsValue(CommandType, self.buffer[self.tail..][0..header_size]);
+            header.* = cmd_type;
+
+            // Move tail forward
+            self.tail = alignPos(payload_pos + size);
+            assert(self.tail <= self.buffer.len);
+
+            return payload_pos;
         }
 
-        pub fn pushClip(self: *Self, rect: Rect) !void {
-            const pos = try self.pushCmd(.Clip);
-            var cmd = self.get(pos);
-            cmd.clip.rect = rect;
+        fn getPtr(self: *Self, comptime T: type, offset: u32) *T {
+            assert(offset < self.tail);
+            assert(std.mem.isAligned(offset, alignment));
+            const bytes = @alignCast(alignment, self.buffer[offset..][0..@sizeOf(T)]);
+            return std.mem.bytesAsValue(T, bytes);
         }
+
+        fn getValue(self: *Self, comptime T: type, offset: u32) T {
+            assert(offset < self.tail);
+            assert(std.mem.isAligned(offset, alignment));
+            const bytes = @alignCast(alignment, self.buffer[offset..][0..@sizeOf(T)]);
+            return std.mem.bytesToValue(T, bytes);
+        }
+
+        fn alignPos(pos: anytype) u32 {
+            return @intCast(u32, std.mem.alignForward(pos, alignment));
+        }
+
+        //=== Jump ===//
+
+        // TODO (Matteo): Review - I'm not very happy with the jump implementation
+        // since it entangles CommandList with the main ui context.
+        // Maybe this separation of data structures was not a good idea...
+
+        pub fn pushJump(self: *Self) !u32 {
+            const handle = self.tail;
+
+            const size = @sizeOf(u32);
+            const jump = try self.pushSize(.Jump, size);
+            const ptr = self.getPtr(u32, jump);
+            ptr.* = 0;
+
+            return handle;
+        }
+
+        pub fn setJumpLocation(self: *Self, handle: u32, dest: u32) void {
+            assert(self.getValue(CommandType, handle) == .Jump);
+
+            const offset = handle + header_size;
+            const ptr = self.getPtr(u32, offset);
+            ptr.* = dest;
+        }
+
+        pub fn getNextLocation(self: *Self, pos: u32) u32 {
+            if (pos == self.tail) return pos;
+
+            const next_pos = switch (self.getValue(CommandType, pos)) {
+                .None => unreachable,
+                .Jump => block: {
+                    break :block pos + header_size + @sizeOf(u32);
+                },
+                .Text => block: {
+                    const payload_pos = pos + header_size;
+                    const payload = self.getPtr(TextPayload, payload_pos);
+                    // NOTE (Matteo): Location is aligned after text insertion (see pushText)
+                    break :block alignPos(payload_pos + @sizeOf(TextPayload) + payload.len);
+                },
+                .User => block: {
+                    const data_pos = pos + header_size;
+                    const data_len = self.getValue(u32, data_pos);
+                    // NOTE (Matteo): Location is aligned after data insertion (see pushUser)
+                    break :block alignPos(data_pos + @sizeOf(u32) + data_len);
+                },
+                inline else => |header| block: {
+                    const T = CommandPayload(header);
+                    break :block pos + header_size + @sizeOf(T);
+                },
+            };
+
+            assert(std.mem.isAligned(next_pos, alignment));
+
+            return next_pos;
+        }
+
+        //=== Text ===//
 
         pub fn pushText(
             self: *Self,
             str: []const u8,
             pos: Vec2,
             color: Color,
-            font: *Font,
+            font: *const Font,
         ) !void {
-            assert(str.len <= std.math.maxInt(CommandHandle));
+            assert(str.len <= std.math.maxInt(u32));
 
-            const header_size = @sizeOf(TextCommand);
-            const full_size = header_size + str.len;
+            // Push enough storage for the full payload
+            const payload_size = @sizeOf(TextPayload);
+            const full_size = payload_size + str.len;
             const offset = try self.pushSize(.Text, full_size);
+            var bytes = self.buffer[offset..][0..full_size];
 
-            var cmd = self.get(offset);
-            cmd.text.pos = pos;
-            cmd.text.font = font;
-            cmd.text.color = color;
-            cmd.text.len = @intCast(CommandHandle, str.len);
+            // Store payload data
+            var cmd = std.mem.bytesAsValue(TextPayload, bytes[0..payload_size]);
+            cmd.pos = pos;
+            cmd.font = FontHandle.encode(font);
+            cmd.color = color;
+            cmd.len = @intCast(u32, str.len);
 
-            var buf = self.buffer[offset + header_size .. offset + full_size];
+            assert(cmd.font.decode() == font);
 
+            // Store text
+            var buf = bytes[payload_size..];
             assert(buf.len == str.len);
-
             std.mem.copy(u8, buf, str);
         }
 
+        const TextPayload = struct {
+            font: FontHandle,
+            pos: Vec2,
+            color: Color,
+            len: u32,
+        };
+
+        // NOTE (Matteo): Use a fixed-width integer for stable memory layout (This is
+        // required mainly for portable serialization, but is this an atual need?)
+        const FontHandle = switch (@sizeOf(*const Font)) {
+            4 => struct {
+                ptr: u32,
+
+                pub inline fn encode(ptr: *const Font) FontHandle {
+                    return .{ .ptr = @intCast(@ptrToInt(ptr), u32) };
+                }
+
+                pub inline fn decode(handle: FontHandle) *const Font {
+                    return @intToPtr(*const Font, handle.ptr);
+                }
+            },
+            8 => struct {
+                ptr: [2]u32,
+
+                pub inline fn encode(ptr: *const Font) FontHandle {
+                    const int = @ptrToInt(ptr);
+                    return .{ .ptr = .{
+                        @intCast(u32, (int >> 32) & 0xFFFFFFFF),
+                        @intCast(u32, int & 0xFFFFFFFF),
+                    } };
+                }
+
+                pub inline fn decode(handle: FontHandle) *const Font {
+                    const int = @intCast(usize, handle.ptr[0]) << 32 | @intCast(usize, handle.ptr[1]);
+                    return @intToPtr(*const Font, int);
+                }
+            },
+            else => unreachable,
+        };
+
+        //=== Iteration ===//
+
+        pub inline fn iter(self: *Self) Iterator {
+            return Iterator{ .list = self };
+        }
+
+        const Iterator = struct {
+            list: *Self,
+            pos: u32 = 0,
+
+            pub fn next(self: *Iterator) Command {
+                while (self.pos != self.list.tail) {
+                    const curr_pos = self.pos;
+                    const data_pos = curr_pos + header_size;
+
+                    assert(std.mem.isAligned(data_pos, alignment));
+
+                    self.pos = self.list.getNextLocation(curr_pos);
+
+                    switch (self.list.getValue(CommandType, curr_pos)) {
+                        .None => unreachable,
+                        .Jump => {
+                            self.pos = self.list.getValue(u32, data_pos);
+                        },
+                        .Text => {
+                            const payload = self.list.getPtr(TextPayload, data_pos);
+
+                            return .{ .Text = .{
+                                .str = self.list.buffer[data_pos + @sizeOf(TextPayload) ..][0..payload.len],
+                                .font = payload.font.decode(),
+                                .color = payload.color,
+                                .pos = payload.pos,
+                            } };
+                        },
+                        .User => {
+                            const data_len = self.list.getValue(u32, data_pos);
+                            return .{ .User = self.list.buffer[data_pos + @sizeOf(u32) ..][0..data_len] };
+                        },
+                        inline else => |header| {
+                            const T = CommandPayload(header);
+                            const payload = self.list.getValue(T, data_pos);
+
+                            return switch (header) {
+                                .Clip => .{ .Clip = payload },
+                                .Icon => .{ .Icon = payload },
+                                .Line => .{ .Line = payload },
+                                .Rect => .{ .Rect = payload },
+                                .Circ => .{ .Circ = payload },
+                                .User => .{ .User = payload },
+                                else => unreachable,
+                            };
+                        },
+                    }
+                }
+
+                return .None;
+            }
+        };
+
+        //=== Custom command ===//
+
+        pub fn pushUser(
+            self: *Self,
+            data: []const u8,
+        ) !void {
+            assert(data.len <= std.math.maxInt(u32));
+
+            // Push enough storage for the full payload
+            const payload_size = @sizeOf(u32);
+            const full_size = payload_size + data.len;
+            const offset = try self.pushSize(.User, full_size);
+            var bytes = self.buffer[offset..][0..full_size];
+
+            // Store data length
+            const len = std.mem.bytesAsValue(u32, bytes[0..payload_size]);
+            len.* = @intCast(u32, data.len);
+
+            // Store data
+            var buf = bytes[payload_size..];
+            assert(buf.len == data.len);
+            std.mem.copy(u8, buf, data);
+        }
+
+        //=== High-level push API ===//
+
+        pub fn pushClip(self: *Self, rect: Rect) !void {
+            var cmd = try self.pushCmd(.Clip);
+            cmd.* = rect;
+        }
+
         pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
-            const pos = try self.pushCmd(.Icon);
-            var cmd = self.get(pos);
-            cmd.icon.id = id;
-            cmd.icon.rect = rect;
-            cmd.icon.color = color;
+            var cmd = try self.pushCmd(.Icon);
+            cmd.id = id;
+            cmd.rect = rect;
+            cmd.color = color;
         }
 
-        pub fn strokeLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) !void {
-            const pos = try self.pushCmd(.Line);
-            var cmd = self.get(pos);
-            cmd.line.p0 = p0;
-            cmd.line.p1 = p1;
-            cmd.line.color = color;
+        pub fn pushLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) !void {
+            var cmd = try self.pushCmd(.Line);
+            cmd.p0 = p0;
+            cmd.p1 = p1;
+            cmd.color = color;
         }
 
-        pub fn fillRect(self: *Self, rect: Rect, color: Color) !void {
-            try self.pushRect(rect, color, true);
+        pub fn pushRect(self: *Self, rect: Rect, color: Color, opts: CommandOptions) !void {
+            var cmd = try self.pushCmd(.Rect);
+            cmd.rect = rect;
+            cmd.color = color;
+            cmd.opts = opts;
         }
 
-        pub fn strokeRect(self: *Self, rect: Rect, color: Color) !void {
-            try self.pushRect(rect, color, false);
-        }
-
-        pub fn fillCircle(self: *Self, center: Vec2, radius: Vec2, color: Color) !void {
-            try self.pushEllipse(center, Ellipse.circle(center, radius), color, true);
-        }
-
-        pub fn strokeCircle(self: *Self, center: Vec2, radius: Vec2, color: Color) !void {
-            try self.pushEllipse(center, Ellipse.circle(center, radius), color, false);
-        }
-
-        pub fn fillEllipse(self: *Self, ellipse: Ellipse, color: Color) !void {
-            try self.pushEllipse(ellipse, color, true);
-        }
-
-        pub fn strokeEllipse(self: *Self, ellipse: Ellipse, color: Color) !void {
-            try self.pushEllipse(ellipse, color, false);
-        }
-
-        fn pushRect(self: *Self, rect: Rect, color: Color, fill: bool) !void {
-            const pos = try self.pushCmd(.Rect);
-            var cmd = self.get(pos);
-            cmd.rect.rect = rect;
-            cmd.rect.color = color;
-            cmd.rect.fill = fill;
-        }
-
-        fn pushEllipse(
+        pub fn pushEllipse(
             self: *Self,
             ellipse: Ellipse,
             color: Color,
-            fill: bool,
+            opts: CommandOptions,
         ) !void {
-            const pos = try self.pushCmd(.Circ);
-            var cmd = self.get(pos);
-            cmd.circ.ellipse = ellipse;
-            cmd.circ.color = color;
-            cmd.circ.fill = fill;
+            var cmd = try self.pushCmd(.Circ);
+            cmd.ellipse = ellipse;
+            cmd.color = color;
+            cmd.fill = opts;
         }
 
-        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) !CommandHandle {
-            const cmd_name = @tagName(cmd_type);
-
-            const cmd_struct = switch (cmd_type) {
-                .Jump => JumpCommand,
-                .Clip => ClipCommand,
-                .Rect => RectCommand,
-                .Icon => IconCommand,
-                .Text => @compileError(cmd_name ++ " requires explicit size to push"),
-                else => @compileError(cmd_name ++ " command is not supported"),
-            };
-
-            return self.pushSize(cmd_type, @sizeOf(cmd_struct));
-        }
-
-        pub fn pushSize(self: *Self, cmd_type: CommandType, size: usize) !CommandHandle {
-            if (size > self.buffer.len) return error.OutOfMemory;
-            if (self.tail > self.buffer.len - size) return error.OutOfMemory;
-
-            const curr_pos = self.tail;
-            assert(std.mem.isAligned(curr_pos, alignment));
-
-            const next_tail = std.mem.alignForward(curr_pos + size, alignment);
-            if (next_tail > self.buffer.len) return error.OutOfMemory;
-
-            self.tail = @intCast(CommandHandle, next_tail);
-
-            var cmd = self.get(curr_pos);
-            cmd.base.type = cmd_type;
-            cmd.base.size = self.tail - curr_pos;
-
-            return curr_pos;
+        pub inline fn pushCircle(
+            self: *Self,
+            center: Vec2,
+            radius: Vec2,
+            color: Color,
+            opts: CommandOptions,
+        ) !void {
+            try self.pushEllipse(center, Ellipse.circle(center, radius), color, opts);
         }
     };
 }
