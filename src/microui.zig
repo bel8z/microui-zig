@@ -804,7 +804,7 @@ pub fn Ui(comptime config: Config) type {
             const state = self.updateControl(id, rect, opts);
 
             // Draw
-            self.drawButton(state, rect, opts);
+            self.drawControlFrame(.Button, rect, state, .{});
             if (icon != .None) self.drawIcon(icon, rect, self.style.getColor(.Text)) catch unreachable;
             if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
@@ -828,7 +828,7 @@ pub fn Ui(comptime config: Config) type {
             // Draw
             const box_size = rect.sz.y;
             const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
-            self.drawBase(state, box, .{});
+            self.drawControlFrame(.Base, box, state, .{});
 
             if (checked.*) self.drawIcon(.Check, box, self.style.getColor(.Text)) catch unreachable;
 
@@ -883,7 +883,7 @@ pub fn Ui(comptime config: Config) type {
             }
 
             // Draw
-            self.drawBase(state, rect, opts);
+            self.drawControlFrame(.Base, rect, state, opts);
 
             if (state.focused) {
                 const font = self.style.font;
@@ -968,7 +968,7 @@ pub fn Ui(comptime config: Config) type {
             value.* = v;
 
             // Draw
-            self.drawBase(state, base, opts);
+            self.drawControlFrame(.Base, base, state, opts);
             // Thumb
             const perc = (v - low) / range;
             const width = self.style.thumb_size;
@@ -978,7 +978,8 @@ pub fn Ui(comptime config: Config) type {
                 width,
                 base.sz.y,
             );
-            self.drawButton(state, thumb, opts);
+            self.drawControlFrame(.Button, thumb, state, .{});
+
             // Text
             var buf: [config.fmt_buf_size]u8 = undefined;
             self.drawControlText(
@@ -1029,7 +1030,7 @@ pub fn Ui(comptime config: Config) type {
             }
 
             // Draw base
-            self.drawBase(state, base, opts);
+            self.drawControlFrame(.Base, base, state, opts);
 
             // Draw text
             var buf: [config.fmt_buf_size]u8 = undefined;
@@ -1143,7 +1144,7 @@ pub fn Ui(comptime config: Config) type {
             if (is_treenode) {
                 if (state.hovered) self.drawFrame(r, .HeaderHover);
             } else {
-                self.drawHeader(state, r, .{});
+                self.drawControlFrame(.Header, r, state, .{});
             }
 
             if (self.drawIcon(
@@ -1355,60 +1356,26 @@ pub fn Ui(comptime config: Config) type {
 
         //=== Drawing ===//
 
-        pub fn drawHeader(
+        // TODO (Matteo): Make color a comptime parameter? Usually that's the case,
+        // and would allow for better code generation but it removes flexibility
+        // from the user side
+        pub fn drawControlFrame(
             self: *Self,
-            state: ControlState,
+            color: ColorId,
             rect: Rect,
+            state: ControlState,
             opts: OptionFlags,
         ) void {
             if (opts.frame) {
-                self.drawFrame(
-                    rect,
-                    if (state.focused)
-                        .HeaderFocus
-                    else if (state.hovered)
-                        .HeaderHover
-                    else
-                        .Header,
-                );
-            }
-        }
+                const offset: u3 = switch (color) {
+                    .Base,
+                    .Button,
+                    .Header,
+                    => if (state.hovered) 1 else if (state.focused) 2 else 0,
+                    inline else => 0,
+                };
 
-        pub fn drawButton(
-            self: *Self,
-            state: ControlState,
-            rect: Rect,
-            opts: OptionFlags,
-        ) void {
-            if (opts.frame) {
-                self.drawFrame(
-                    rect,
-                    if (state.focused)
-                        .ButtonFocus
-                    else if (state.hovered)
-                        .ButtonHover
-                    else
-                        .Button,
-                );
-            }
-        }
-
-        pub fn drawBase(
-            self: *Self,
-            state: ControlState,
-            rect: Rect,
-            opts: OptionFlags,
-        ) void {
-            if (opts.frame) {
-                self.drawFrame(
-                    rect,
-                    if (state.focused)
-                        .BaseFocus
-                    else if (state.hovered)
-                        .BaseHover
-                    else
-                        .Base,
-                );
+                self.drawFrame(rect, @intToEnum(ColorId, @enumToInt(color) + offset));
             }
         }
 
