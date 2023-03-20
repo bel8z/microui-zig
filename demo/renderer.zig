@@ -141,11 +141,13 @@ pub fn setClipRect(self: *Renderer, rect: mu.Rect) void {
 
 pub fn clear(self: *Renderer, color: mu.Color) void {
     self.flush();
+
+    const f = @as(f32, 1) / 255;
     c.glClearColor(
-        @intToFloat(f32, color.r / 255),
-        @intToFloat(f32, color.g / 255),
-        @intToFloat(f32, color.b / 255),
-        @intToFloat(f32, color.a / 255),
+        @intToFloat(f32, color.r) * f,
+        @intToFloat(f32, color.g) * f,
+        @intToFloat(f32, color.b) * f,
+        @intToFloat(f32, color.a) * f,
     );
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 }
