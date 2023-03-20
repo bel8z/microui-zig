@@ -137,6 +137,7 @@ pub const Style = struct {
 
 /// Compile-time configuration parameters
 pub const Config = struct {
+    // Sizes
     command_list_size: u32 = (256 * 1024),
     rootlist_size: u16 = 32,
     container_stack_size: u16 = 32,
@@ -145,12 +146,15 @@ pub const Config = struct {
     layout_stack_size: u16 = 16,
     container_pool_size: u16 = 48,
     treenode_pool_size: u16 = 48,
-    max_widths: u16 = 16,
-    real: type = f32,
-    real_fmt: []const u8 = "{d:.3}",
-    slider_fmt: []const u8 = "{d:.2}",
+    // TODO (Matteo): Review
     fmt_buf_size: u16 = 127,
     input_buf_size: u32 = 32,
+
+    /// Maximum number of columns in a layout row
+    max_widths: u16 = 16,
+
+    /// Type used to represent real numbers
+    real_type: type = f32,
 };
 
 pub fn Ui(comptime config: Config) type {
@@ -163,7 +167,7 @@ pub fn Ui(comptime config: Config) type {
 
         // NOTE (Matteo): Declare here because are configurable
 
-        pub const Real = config.real;
+        pub const Real = config.real_type;
 
         pub const DrawFrameFn = *const fn (self: *Self, rect: Rect, color: ColorId) void;
 
@@ -924,7 +928,7 @@ pub fn Ui(comptime config: Config) type {
                 low,
                 high,
                 0,
-                config.slider_fmt,
+                "{d:.2}",
                 .{ .align_center = true },
             );
         }
@@ -1001,7 +1005,7 @@ pub fn Ui(comptime config: Config) type {
             return self.numberEx(
                 value,
                 step,
-                config.slider_fmt,
+                "{d:.2}",
                 .{ .align_center = true },
             );
         }
