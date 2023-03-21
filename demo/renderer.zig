@@ -19,6 +19,7 @@ tex_buf: [buffer_size * 8]f32,
 vert_buf: [buffer_size * 8]i32,
 color_buf: [buffer_size * 16]u8,
 index_buf: [buffer_size * 6]c_uint,
+font: mu.Font,
 
 pub fn init(width: c_int, height: c_int, allocator: std.mem.Allocator) !*Renderer {
     var r = try allocator.create(Renderer);
@@ -57,7 +58,18 @@ pub fn init(width: c_int, height: c_int, allocator: std.mem.Allocator) !*Rendere
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
     assert(c.glGetError() == 0);
 
+    // Init font
+    r.font = mu.Font{
+        .ptr = null,
+        .text_height = atlas.text_height,
+        .text_width = getTextWidth,
+    };
+
     return r;
+}
+
+fn getTextWidth(_: ?*anyopaque, text: []const u8) i32 {
+    return atlas.getTextWidth(text);
 }
 
 pub fn flush(self: *Renderer) void {
@@ -97,8 +109,45 @@ pub fn flush(self: *Renderer) void {
     self.buf_idx = 0;
 }
 
-pub fn drawRect(self: *Renderer, rect: mu.Rect, color: mu.Color) void {
-    self.pushQuad(rect, atlas.white, color);
+pub fn drawRect(self: *Renderer, cmd: mu.command.RectCommand) void {
+    const rect = cmd.rect;
+    const color = cmd.color;
+
+    if (cmd.opts.fill) {
+        self.pushQuad(rect, atlas.white, color);
+    } else {
+        // NOTE (Matteo): This was part of the original microui implementation
+        // I reviewed the drawing API in order to support both stroked and filled rects
+        // (and ellipses), so this implementation detail moved to the rendering layer
+
+        self.pushQuad(mu.Rect.init(
+            rect.pt.x + 1,
+            rect.pt.y,
+            rect.sz.x - 2,
+            1,
+        ), atlas.white, color);
+
+        self.pushQuad(mu.Rect.init(
+            rect.pt.x + 1,
+            rect.pt.y + rect.sz.y - 1,
+            rect.sz.x - 2,
+            1,
+        ), atlas.white, color);
+
+        self.pushQuad(mu.Rect.init(
+            rect.pt.x,
+            rect.pt.y,
+            1,
+            rect.sz.y,
+        ), atlas.white, color);
+
+        self.pushQuad(mu.Rect.init(
+            rect.pt.x + rect.sz.x - 1,
+            rect.pt.y,
+            1,
+            rect.sz.y,
+        ), atlas.white, color);
+    }
 }
 
 pub fn drawIcon(self: *Renderer, id: mu.Icon, rect: mu.Rect, color: mu.Color) void {
@@ -117,16 +166,6 @@ pub fn drawText(self: *Renderer, text: []const u8, pos: mu.Vec2, color: mu.Color
         self.pushQuad(dst, src, color);
         dst.pt.x += dst.sz.x;
     }
-}
-
-pub fn getTextWidth(self: *Renderer, text: []const u8) i32 {
-    _ = self;
-    return atlas.getTextWidth(text);
-}
-
-pub fn getTextHeight(self: *Renderer) i32 {
-    _ = self;
-    return atlas.text_height;
 }
 
 pub fn setClipRect(self: *Renderer, rect: mu.Rect) void {

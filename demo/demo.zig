@@ -64,13 +64,8 @@ pub fn main() !void {
     defer ui_alloc.destroy(r);
 
     // init microui
-    var ui_font = Font{
-        .ptr = r,
-        .text_height = r.getTextHeight(),
-        .text_width = textWidth,
-    };
     var ui = try ui_alloc.create(Ui);
-    ui.init(&ui_font, null);
+    ui.init(&r.font, null);
 
     // NOTE (Matteo): Theming attempt
     var style = ui._style;
@@ -146,72 +141,25 @@ pub fn main() !void {
             styleWindow(ui);
         }
 
-        // TODO (Matteo): TEST RENDERING!!!
         // render
         r.clear(bg);
-
         var iter = ui.command_list.iter();
         while (true) {
-            const what = iter.next();
-            switch (what) {
+            switch (iter.next()) {
                 .None => break,
+                .Clip => |cmd| r.setClipRect(cmd),
+                .Icon => |cmd| r.drawIcon(cmd.id, cmd.rect, cmd.color),
+                .Rect => |cmd| r.drawRect(cmd),
                 .Text => |cmd| {
+                    std.debug.assert(cmd.font == &r.font);
                     r.drawText(cmd.str, cmd.pos, cmd.color);
                 },
-                .Rect => |cmd| {
-                    if (cmd.opts.fill) {
-                        r.drawRect(cmd.rect, cmd.color);
-                    } else {
-                        renderBox(r, cmd.rect, cmd.color);
-                    }
-                },
-                .Icon => |cmd| r.drawIcon(cmd.id, cmd.rect, cmd.color),
-                .Clip => |cmd| r.setClipRect(cmd),
                 else => unreachable,
             }
         }
         r.flush();
         _ = c.SDL_GL_SwapWindow(window);
     }
-}
-
-fn renderBox(r: *Renderer, rect: mu.Rect, color: mu.Color) void {
-    // NOTE (Matteo): This was part of the original microui implementation
-    // I reviewed the drawing API in order to support both stroked and filled rects
-    // (and ellipses), so this implementation detail moved to the rendering layer
-
-    r.drawRect(mu.Rect.init(
-        rect.pt.x + 1,
-        rect.pt.y,
-        rect.sz.x - 2,
-        1,
-    ), color);
-
-    r.drawRect(mu.Rect.init(
-        rect.pt.x + 1,
-        rect.pt.y + rect.sz.y - 1,
-        rect.sz.x - 2,
-        1,
-    ), color);
-
-    r.drawRect(mu.Rect.init(
-        rect.pt.x,
-        rect.pt.y,
-        1,
-        rect.sz.y,
-    ), color);
-
-    r.drawRect(mu.Rect.init(
-        rect.pt.x + rect.sz.x - 1,
-        rect.pt.y,
-        1,
-        rect.sz.y,
-    ), color);
-}
-
-fn textWidth(ptr: ?*anyopaque, str: []const u8) i32 {
-    const r = opaqueCast(Renderer, ptr orelse unreachable);
-    return r.getTextWidth(str);
 }
 
 fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
