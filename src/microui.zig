@@ -1821,11 +1821,10 @@ pub const TextBuffer = struct {
     }
 
     pub fn deleteLast(self: *TextBuffer) bool {
-        // TODO (Matteo): Use stdlib unicode facilities?
         if (self.text.len > 0) {
             // skip utf-8 continuation bytes
             var cursor = self.text.len - 1;
-            while (cursor > 0 and (self.text[cursor] & 0xc0) == 0x80) {
+            while (cursor > 0 and isUnicodeContinuation(self.text[cursor])) {
                 cursor -= 1;
             }
             self.text.len = cursor;
@@ -1844,6 +1843,11 @@ pub const TextBoxState = packed struct {
 //=============//
 //  Utilities  //
 //=============//
+
+// TODO (Matteo): Use stdlib unicode facilities?
+pub inline fn isUnicodeContinuation(char: u8) bool {
+    return (char & 0xC0 == 0x80);
+}
 
 // TODO (Matteo): API review. At the moment multiple elements with the same ID
 // can be stored - this does not happen if the expected usage, which is to always

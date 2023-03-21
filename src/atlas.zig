@@ -26,7 +26,7 @@ pub fn getIcon(id: mu.Icon) mu.Rect {
 }
 
 pub fn getGlyph(char: u8) mu.Rect {
-    if (char & 0xC0 == 0x80) return .{};
+    if (mu.isUnicodeContinuation(char)) return .{};
 
     const index = char + font_start;
     if (index > atlas.len) return .{};
