@@ -32,6 +32,17 @@ pub const CommandType = enum(u32) {
     User,
 };
 
+pub const CommandOptions = packed struct(u32) {
+    fill: bool = true,
+    _dummy: u31 = 0,
+};
+
+pub const TextCommand = struct { str: []const u8, font: *const Font, pos: Vec2, color: Color };
+pub const IconCommand = struct { rect: Rect, color: Color, id: Icon };
+pub const LineCommand = struct { p0: Vec2, p1: Vec2, color: Color };
+pub const RectCommand = struct { rect: Rect, color: Color, opts: CommandOptions };
+pub const CircCommand = struct { ellipse: Ellipse, color: Color, opts: CommandOptions };
+
 pub const Command = union(CommandType) {
     None,
     Jump: u32,
@@ -42,17 +53,178 @@ pub const Command = union(CommandType) {
     Rect: RectCommand,
     Circ: CircCommand,
     User: []const u8,
-};
 
-pub const TextCommand = struct { str: []const u8, font: *const Font, pos: Vec2, color: Color };
-pub const IconCommand = struct { rect: Rect, color: Color, id: Icon };
-pub const LineCommand = struct { p0: Vec2, p1: Vec2, color: Color };
-pub const RectCommand = struct { rect: Rect, color: Color, opts: CommandOptions };
-pub const CircCommand = struct { ellipse: Ellipse, color: Color, opts: CommandOptions };
+    const alignment = @alignOf(u32);
+    const tag_size: u32 = @sizeOf(CommandType);
 
-pub const CommandOptions = packed struct(u32) {
-    fill: bool = true,
-    _dummy: u31 = 0,
+    comptime {
+        assert(alignment == @alignOf(CommandType));
+        assert(alignment == @alignOf(TextEncoding));
+        assert(@sizeOf(FontEncoding) == @sizeOf(*const Font));
+    }
+
+    fn encodingSize(cmd: Command) u32 {
+        const size = tag_size + cmd.payloadSize();
+        assert(std.mem.isAligned(size, alignment));
+        return size;
+    }
+
+    fn encode(cmd: Command, buf: []u8, pos: u32) u32 {
+        const size = cmd.payloadSize();
+
+        assert(buf.len - pos >= tag_size + size);
+
+        encodeTag(cmd, buf[pos..][0..tag_size]);
+
+        const dst = buf[pos + tag_size ..][0..size];
+
+        switch (cmd) {
+            .None => unreachable,
+            .Text => |text| {
+                const meta_size = @sizeOf(TextEncoding);
+                assert(text.str.len <= std.math.maxInt(u32));
+                assert(size >= @sizeOf(TextEncoding) + text.str.len);
+
+                // Store encoded data
+                var enc = std.mem.bytesAsValue(TextEncoding, dst[0..meta_size]);
+                enc.pos = text.pos;
+                enc.font = FontEncoding.encode(text.font);
+                enc.color = text.color;
+                enc.len = @intCast(u32, text.str.len);
+                assert(enc.font.decode() == text.font);
+
+                // Store text
+                assert(dst.len - meta_size >= text.str.len);
+                std.mem.copy(u8, dst[meta_size..], text.str);
+            },
+            .User => |data| {
+                const meta_size = @sizeOf(u32);
+                assert(data.len <= std.math.maxInt(u32));
+                assert(size >= meta_size + data.len);
+                assert(buf.len - meta_size >= data.len);
+                std.mem.writeIntLittle(u32, dst[0..meta_size], @intCast(u32, data.len));
+                std.mem.copy(u8, dst[meta_size..], data);
+            },
+            inline else => |*payload| {
+                const src = std.mem.asBytes(payload);
+                std.mem.copy(u8, dst, src);
+            },
+        }
+
+        return pos + tag_size + size;
+    }
+
+    fn decode(buf: []u8, pos: u32) Command {
+        assert(buf.len - pos > tag_size);
+
+        const cmd_type = decodeTag(buf[pos..][0..tag_size]);
+        const src = buf[pos + tag_size ..];
+
+        switch (cmd_type) {
+            .None => unreachable,
+            .Text => {
+                const meta_size = @sizeOf(TextEncoding);
+
+                // Read encoded data
+                const enc = std.mem.bytesAsValue(TextEncoding, src[0..meta_size]);
+
+                return .{ .Text = .{
+                    .str = src[meta_size..][0..enc.len],
+                    .pos = enc.pos,
+                    .color = enc.color,
+                    .font = enc.font.decode(),
+                } };
+            },
+            .User => {
+                const meta_size = @sizeOf(u32);
+                const len = std.mem.readIntLittle(u32, src[0..meta_size]);
+                return .{ .User = src[meta_size..][0..len] };
+            },
+            inline else => |header| {
+                const T = std.meta.TagPayload(Command, header);
+                const payload = std.mem.bytesToValue(T, src[0..@sizeOf(T)]);
+
+                // TODO (Matteo): Is there a better way to achieve this?
+                return switch (header) {
+                    inline .Jump => .{ .Jump = payload },
+                    inline .Clip => .{ .Clip = payload },
+                    inline .Icon => .{ .Icon = payload },
+                    inline .Line => .{ .Line = payload },
+                    inline .Rect => .{ .Rect = payload },
+                    inline .Circ => .{ .Circ = payload },
+                    inline else => unreachable,
+                };
+            },
+        }
+    }
+
+    fn payloadSize(cmd: Command) u32 {
+        const size = switch (cmd) {
+            .None => unreachable,
+            .Text => |text| std.mem.alignForward(@sizeOf(TextEncoding) + text.str.len, alignment),
+            .User => |data| std.mem.alignForward(@sizeOf(u32) + data.len, alignment),
+            inline else => |payload| @sizeOf(@TypeOf(payload)),
+        };
+
+        assert(std.mem.isAligned(size, alignment));
+
+        return @intCast(u32, size);
+    }
+
+    inline fn encodeTag(tag: Command, buf: []u8) void {
+        assert(buf.len == tag_size);
+        const int = @enumToInt(@as(CommandType, tag));
+        std.mem.writeIntLittle(u32, buf[0..tag_size], int);
+    }
+
+    inline fn decodeTag(buf: []const u8) CommandType {
+        assert(buf.len == tag_size);
+        return @intToEnum(
+            CommandType,
+            std.mem.readIntLittle(u32, buf[0..tag_size]),
+        );
+    }
+
+    const TextEncoding = extern struct {
+        pos: Vec2,
+        color: Color,
+        len: u32,
+        font: FontEncoding,
+    };
+
+    // NOTE (Matteo): Use a fixed-width integer for stable memory layout (This is
+    // required mainly for portable serialization, but is this an atual need?)
+    const FontEncoding = switch (@sizeOf(*const Font)) {
+        @sizeOf(u32) => extern struct {
+            ptr: u32,
+
+            pub fn encode(ptr: *const Font) FontEncoding {
+                return .{ .ptr = @intCast(@ptrToInt(ptr), u32) };
+            }
+
+            fn decode(enc: FontEncoding) *const Font {
+                return @intToPtr(*const Font, enc);
+            }
+        },
+        @sizeOf(u64) => extern struct {
+            ab: u32,
+            cd: u32,
+
+            pub fn encode(ptr: *const Font) FontEncoding {
+                const int = @ptrToInt(ptr);
+                return .{
+                    .ab = @intCast(u32, (int >> 32) & 0xFFFFFFFF),
+                    .cd = @intCast(u32, int & 0xFFFFFFFF),
+                };
+            }
+
+            pub fn decode(enc: FontEncoding) *const Font {
+                const int = @intCast(usize, enc.ab) << 32 | @intCast(usize, enc.cd);
+                return @intToPtr(*const Font, int);
+            }
+        },
+        else => {},
+    };
 };
 
 // TODO (Matteo): Review - The storage implementation here is a bit ugly.
@@ -61,11 +233,9 @@ pub const CommandOptions = packed struct(u32) {
 // in a more user-friendly tagged union type.
 pub fn CommandList(comptime N: u32) type {
     return struct {
-        buffer: [N]u8 align(alignment) = undefined,
+        buffer: [N]u8 align(Command.alignment) = undefined,
         tail: u32 = 0,
 
-        const header_size = @sizeOf(CommandType);
-        const alignment = @alignOf(u32);
         const Self = @This();
 
         //=== Basic API ===//
@@ -74,64 +244,13 @@ pub fn CommandList(comptime N: u32) type {
             self.tail = 0;
         }
 
-        pub fn pushCmd(self: *Self, comptime cmd_type: CommandType) !*CommandPayload(cmd_type) {
-            const T = CommandPayload(cmd_type);
-            comptime assert(@alignOf(T) == alignment);
+        pub fn push(self: *Self, cmd: Command) !u32 {
+            const size = cmd.encodingSize();
+            const pos = self.tail;
+            if (N - pos < size) return error.OutOfMemory;
 
-            const size = @sizeOf(T);
-            const pos = try self.pushSize(cmd_type, size);
-            return self.getPtr(T, pos);
-        }
-
-        fn CommandPayload(comptime cmd_type: CommandType) type {
-            const cmd_name = @tagName(cmd_type);
-            const cmd_fields = @typeInfo(Command).Union.fields;
-
-            switch (cmd_type) {
-                .Jump => @compileError(cmd_name ++ " requires explicit call to pushJump"),
-                .Text => @compileError(cmd_name ++ " requires explicit call to pushText"),
-                .User => @compileError(cmd_name ++ " requires explicit call to pushUser"),
-                .None => @compileError(cmd_name ++ " command is not supported"),
-                inline else => return cmd_fields[@enumToInt(cmd_type)].field_type,
-            }
-        }
-
-        fn pushSize(self: *Self, cmd_type: CommandType, size: usize) !u32 {
-            if (size > self.buffer.len) return error.OutOfMemory;
-
-            // Compute payload offset and check available storage
-            const payload_pos = self.tail + header_size;
-            assert(std.mem.isAligned(payload_pos, alignment));
-            if (self.buffer.len - self.tail < payload_pos + size) return error.OutOfMemory;
-
-            // Write header at current offset
-            assert(std.mem.isAligned(self.tail, alignment));
-            const header = std.mem.bytesAsValue(CommandType, self.buffer[self.tail..][0..header_size]);
-            header.* = cmd_type;
-
-            // Move tail forward
-            self.tail = alignPos(payload_pos + size);
-            assert(self.tail <= self.buffer.len);
-
-            return payload_pos;
-        }
-
-        fn getPtr(self: *Self, comptime T: type, offset: u32) *T {
-            assert(offset < self.tail);
-            assert(std.mem.isAligned(offset, alignment));
-            const bytes = @alignCast(alignment, self.buffer[offset..][0..@sizeOf(T)]);
-            return std.mem.bytesAsValue(T, bytes);
-        }
-
-        fn getValue(self: *Self, comptime T: type, offset: u32) T {
-            assert(offset < self.tail);
-            assert(std.mem.isAligned(offset, alignment));
-            const bytes = @alignCast(alignment, self.buffer[offset..][0..@sizeOf(T)]);
-            return std.mem.bytesToValue(T, bytes);
-        }
-
-        fn alignPos(pos: anytype) u32 {
-            return @intCast(u32, std.mem.alignForward(pos, alignment));
+            self.tail = cmd.encode(&self.buffer, pos);
+            return pos;
         }
 
         //=== Jump ===//
@@ -141,126 +260,28 @@ pub fn CommandList(comptime N: u32) type {
         // Maybe this separation of data structures was not a good idea...
 
         pub fn pushJump(self: *Self) !u32 {
-            const handle = self.tail;
-
-            const size = @sizeOf(u32);
-            const jump = try self.pushSize(.Jump, size);
-            const ptr = self.getPtr(u32, jump);
-            ptr.* = 0;
-
-            return handle;
+            // NOTE (Matteo): Enforce a loop by default
+            return self.push(.{ .Jump = self.tail });
         }
 
-        pub fn setJumpLocation(self: *Self, handle: u32, dest: u32) void {
-            assert(self.getValue(CommandType, handle) == .Jump);
-
-            const offset = handle + header_size;
-            const ptr = self.getPtr(u32, offset);
-            ptr.* = dest;
+        pub fn setJump(self: *Self, jump: u32, dest: u32) void {
+            // TODO (Matteo): Review - Optimize
+            var cmd = Command.decode(&self.buffer, jump);
+            assert(cmd == .Jump);
+            cmd.Jump = dest;
+            _ = cmd.encode(&self.buffer, jump);
         }
 
-        pub fn getNextLocation(self: *Self, pos: u32) u32 {
+        pub fn nextCommand(self: *Self, pos: u32) u32 {
             if (pos == self.tail) return pos;
 
-            const next_pos = switch (self.getValue(CommandType, pos)) {
-                .None => unreachable,
-                .Jump => block: {
-                    break :block pos + header_size + @sizeOf(u32);
-                },
-                .Text => block: {
-                    const payload_pos = pos + header_size;
-                    const payload = self.getPtr(TextPayload, payload_pos);
-                    // NOTE (Matteo): Location is aligned after text insertion (see pushText)
-                    break :block alignPos(payload_pos + @sizeOf(TextPayload) + payload.len);
-                },
-                .User => block: {
-                    const data_pos = pos + header_size;
-                    const data_len = self.getValue(u32, data_pos);
-                    // NOTE (Matteo): Location is aligned after data insertion (see pushUser)
-                    break :block alignPos(data_pos + @sizeOf(u32) + data_len);
-                },
-                inline else => |header| block: {
-                    const T = CommandPayload(header);
-                    break :block pos + header_size + @sizeOf(T);
-                },
-            };
+            // TODO (Matteo): Review - Optimize
+            const cmd = Command.decode(&self.buffer, pos);
+            const next_pos = pos + cmd.encodingSize();
 
-            assert(std.mem.isAligned(next_pos, alignment));
-
+            assert(std.mem.isAligned(next_pos, Command.alignment));
             return next_pos;
         }
-
-        //=== Text ===//
-
-        pub fn pushText(
-            self: *Self,
-            str: []const u8,
-            pos: Vec2,
-            color: Color,
-            font: *const Font,
-        ) !void {
-            assert(str.len <= std.math.maxInt(u32));
-
-            // Push enough storage for the full payload
-            const payload_size = @sizeOf(TextPayload);
-            const full_size = payload_size + str.len;
-            const offset = try self.pushSize(.Text, full_size);
-            var bytes = self.buffer[offset..][0..full_size];
-
-            // Store payload data
-            var cmd = std.mem.bytesAsValue(TextPayload, bytes[0..payload_size]);
-            cmd.pos = pos;
-            cmd.font = FontHandle.encode(font);
-            cmd.color = color;
-            cmd.len = @intCast(u32, str.len);
-
-            assert(cmd.font.decode() == font);
-
-            // Store text
-            var buf = bytes[payload_size..];
-            assert(buf.len == str.len);
-            std.mem.copy(u8, buf, str);
-        }
-
-        const TextPayload = struct {
-            font: FontHandle,
-            pos: Vec2,
-            color: Color,
-            len: u32,
-        };
-
-        // NOTE (Matteo): Use a fixed-width integer for stable memory layout (This is
-        // required mainly for portable serialization, but is this an atual need?)
-        const FontHandle = switch (@sizeOf(*const Font)) {
-            4 => struct {
-                ptr: u32,
-
-                pub inline fn encode(ptr: *const Font) FontHandle {
-                    return .{ .ptr = @intCast(@ptrToInt(ptr), u32) };
-                }
-
-                pub inline fn decode(handle: FontHandle) *const Font {
-                    return @intToPtr(*const Font, handle.ptr);
-                }
-            },
-            8 => struct {
-                ptr: [2]u32,
-
-                pub inline fn encode(ptr: *const Font) FontHandle {
-                    const int = @ptrToInt(ptr);
-                    return .{ .ptr = .{
-                        @intCast(u32, (int >> 32) & 0xFFFFFFFF),
-                        @intCast(u32, int & 0xFFFFFFFF),
-                    } };
-                }
-
-                pub inline fn decode(handle: FontHandle) *const Font {
-                    const int = @intCast(usize, handle.ptr[0]) << 32 | @intCast(usize, handle.ptr[1]);
-                    return @intToPtr(*const Font, int);
-                }
-            },
-            else => unreachable,
-        };
 
         //=== Iteration ===//
 
@@ -274,45 +295,14 @@ pub fn CommandList(comptime N: u32) type {
 
             pub fn next(self: *Iterator) Command {
                 while (self.pos != self.list.tail) {
-                    const curr_pos = self.pos;
-                    const data_pos = curr_pos + header_size;
+                    const cmd = Command.decode(&self.list.buffer, self.pos);
 
-                    assert(std.mem.isAligned(data_pos, alignment));
-
-                    self.pos = self.list.getNextLocation(curr_pos);
-
-                    switch (self.list.getValue(CommandType, curr_pos)) {
+                    switch (cmd) {
                         .None => unreachable,
-                        .Jump => {
-                            self.pos = self.list.getValue(u32, data_pos);
-                        },
-                        .Text => {
-                            const payload = self.list.getPtr(TextPayload, data_pos);
-
-                            return .{ .Text = .{
-                                .str = self.list.buffer[data_pos + @sizeOf(TextPayload) ..][0..payload.len],
-                                .font = payload.font.decode(),
-                                .color = payload.color,
-                                .pos = payload.pos,
-                            } };
-                        },
-                        .User => {
-                            const data_len = self.list.getValue(u32, data_pos);
-                            return .{ .User = self.list.buffer[data_pos + @sizeOf(u32) ..][0..data_len] };
-                        },
-                        inline else => |header| {
-                            const T = CommandPayload(header);
-                            const payload = self.list.getValue(T, data_pos);
-
-                            return switch (header) {
-                                .Clip => .{ .Clip = payload },
-                                .Icon => .{ .Icon = payload },
-                                .Line => .{ .Line = payload },
-                                .Rect => .{ .Rect = payload },
-                                .Circ => .{ .Circ = payload },
-                                .User => .{ .User = payload },
-                                else => unreachable,
-                            };
+                        .Jump => |dest| self.pos = dest,
+                        else => {
+                            self.pos += cmd.encodingSize();
+                            return cmd;
                         },
                     }
                 }
@@ -321,56 +311,46 @@ pub fn CommandList(comptime N: u32) type {
             }
         };
 
-        //=== Custom command ===//
-
-        pub fn pushUser(
-            self: *Self,
-            data: []const u8,
-        ) !void {
-            assert(data.len <= std.math.maxInt(u32));
-
-            // Push enough storage for the full payload
-            const payload_size = @sizeOf(u32);
-            const full_size = payload_size + data.len;
-            const offset = try self.pushSize(.User, full_size);
-            var bytes = self.buffer[offset..][0..full_size];
-
-            // Store data length
-            const len = std.mem.bytesAsValue(u32, bytes[0..payload_size]);
-            len.* = @intCast(u32, data.len);
-
-            // Store data
-            var buf = bytes[payload_size..];
-            assert(buf.len == data.len);
-            std.mem.copy(u8, buf, data);
-        }
-
         //=== High-level push API ===//
 
         pub fn pushClip(self: *Self, rect: Rect) !void {
-            var cmd = try self.pushCmd(.Clip);
-            cmd.* = rect;
+            _ = try self.push(.{ .Clip = rect });
+        }
+
+        pub fn pushText(
+            self: *Self,
+            str: []const u8,
+            pos: Vec2,
+            color: Color,
+            font: *const Font,
+        ) !void {
+            _ = try self.push(.{ .Text = .{
+                .str = str,
+                .pos = pos,
+                .color = color,
+                .font = font,
+            } });
         }
 
         pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
-            var cmd = try self.pushCmd(.Icon);
-            cmd.id = id;
-            cmd.rect = rect;
-            cmd.color = color;
+            _ = try self.push(.{ .Icon = .{ .id = id, .rect = rect, .color = color } });
         }
 
         pub fn pushLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) !void {
-            var cmd = try self.pushCmd(.Line);
-            cmd.p0 = p0;
-            cmd.p1 = p1;
-            cmd.color = color;
+            _ = try self.push(.{ .Line = .{ .p0 = p0, .p1 = p1, .color = color } });
         }
 
-        pub fn pushRect(self: *Self, rect: Rect, color: Color, opts: CommandOptions) !void {
-            var cmd = try self.pushCmd(.Rect);
-            cmd.rect = rect;
-            cmd.color = color;
-            cmd.opts = opts;
+        pub fn pushRect(
+            self: *Self,
+            rect: Rect,
+            color: Color,
+            opts: CommandOptions,
+        ) !void {
+            _ = try self.push(.{ .Rect = .{
+                .rect = rect,
+                .color = color,
+                .opts = opts,
+            } });
         }
 
         pub fn pushEllipse(
@@ -379,10 +359,11 @@ pub fn CommandList(comptime N: u32) type {
             color: Color,
             opts: CommandOptions,
         ) !void {
-            var cmd = try self.pushCmd(.Circ);
-            cmd.ellipse = ellipse;
-            cmd.color = color;
-            cmd.fill = opts;
+            _ = try self.push(.{ .Circ = .{
+                .ellipse = ellipse,
+                .color = color,
+                .opts = opts,
+            } });
         }
 
         pub inline fn pushCircle(
@@ -395,11 +376,6 @@ pub fn CommandList(comptime N: u32) type {
             try self.pushEllipse(center, Ellipse.circle(center, radius), color, opts);
         }
     };
-}
-
-test "CommandList" {
-    var cmds = CommandList(4096){};
-    _ = cmds.pushSize(.Rect, @sizeOf(RectCommand));
 }
 
 //

@@ -332,11 +332,11 @@ pub fn Ui(comptime config: Config) type {
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
                 var jump = if (i == 0) 0 else roots[i - 1].tail;
-                self.command_list.setJumpLocation(jump, self.command_list.getNextLocation(cnt.head));
+                self.command_list.setJump(jump, self.command_list.nextCommand(cnt.head));
 
                 // Make the last container's tail jump to the end of command list
                 if (i == roots.len - 1) {
-                    self.command_list.setJumpLocation(cnt.tail, self.command_list.tail);
+                    self.command_list.setJump(cnt.tail, self.command_list.tail);
                 }
             }
         }
@@ -1283,7 +1283,7 @@ pub fn Ui(comptime config: Config) type {
             // Push tail 'goto' jump command and set head 'skip' command. the final steps
             // on initing these are done in 'endFrame'
             cnt.tail = self.command_list.pushJump() catch unreachable;
-            self.command_list.setJumpLocation(cnt.head, self.command_list.tail);
+            self.command_list.setJump(cnt.head, self.command_list.tail);
 
             // Pop container
             const layout = self.layout_stack.pop();
