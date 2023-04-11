@@ -236,14 +236,19 @@ pub const Error = std.mem.Allocator.Error;
 pub fn CommandList(comptime N: u32) type {
     return struct {
         buffer: [N]u8 align(Command.alignment) = undefined,
-        tail: u32 = 0,
+        tail: u32 = tail_init,
+
+        // NOTE (Matteo): Append starts after 'alignment' bytes in order to
+        // have 0 represent an invalid handle. I found wasting 4 bytes is worth
+        // avoiding the hassle with nullable offsets...
+        const tail_init = Command.alignment;
 
         const Self = @This();
 
         //=== Basic API ===//
 
         pub inline fn clear(self: *Self) void {
-            self.tail = 0;
+            self.tail = tail_init;
         }
 
         pub fn push(self: *Self, cmd: Command) Error!u32 {
@@ -252,6 +257,8 @@ pub fn CommandList(comptime N: u32) type {
             if (N - pos < size) return Error.OutOfMemory;
 
             self.tail = cmd.encode(&self.buffer, pos);
+
+            assert(pos != 0);
             return pos;
         }
 
@@ -263,7 +270,12 @@ pub fn CommandList(comptime N: u32) type {
 
         pub fn pushJump(self: *Self) Error!u32 {
             // NOTE (Matteo): Enforce a loop by default
-            return self.push(.{ .Jump = self.tail });
+            const tail_pos = self.tail;
+            const jump_pos = try self.push(.{ .Jump = tail_pos });
+
+            assert(tail_pos == jump_pos);
+
+            return jump_pos;
         }
 
         pub fn setJump(self: *Self, jump: u32, dest: u32) void {
@@ -293,7 +305,7 @@ pub fn CommandList(comptime N: u32) type {
 
         const Iterator = struct {
             list: *Self,
-            pos: u32 = 0,
+            pos: u32 = tail_init,
 
             pub fn next(self: *Iterator) Command {
                 while (self.pos != self.list.tail) {

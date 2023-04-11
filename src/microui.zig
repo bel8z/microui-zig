@@ -334,7 +334,7 @@ pub fn Ui(comptime config: Config) type {
             for (roots) |cnt, i| {
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
-                var jump = if (i == 0) 0 else roots[i - 1].tail;
+                var jump = if (i == 0) cnt.head else roots[i - 1].tail;
                 self.command_list.setJump(jump, self.command_list.nextCommand(cnt.head));
 
                 // Make the last container's tail jump to the end of command list
@@ -723,11 +723,12 @@ pub fn Ui(comptime config: Config) type {
                 i -= 1;
 
                 const slot = self.container_stack.get(i);
-                if (&self.containers[slot] == self.hover_root) return true;
+                const cnt = &self.containers[slot];
+                if (cnt == self.hover_root) return true;
 
                 // Only root containers have their `head` field set; stop searching
                 // if we've reached the current root container
-                if (self.containers[slot].head != 0) break;
+                if (cnt.head != 0) break;
             }
 
             return false;
