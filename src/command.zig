@@ -227,6 +227,8 @@ pub const Command = union(CommandType) {
     };
 };
 
+pub const Error = std.mem.Allocator.Error;
+
 // TODO (Matteo): Review - The storage implementation here is a bit ugly.
 // The idea is to encode commands in a (not very much) packed format, so all
 // data is aligned on 32 bit boundaries. During iteration commands are decoded
@@ -244,10 +246,10 @@ pub fn CommandList(comptime N: u32) type {
             self.tail = 0;
         }
 
-        pub fn push(self: *Self, cmd: Command) !u32 {
+        pub fn push(self: *Self, cmd: Command) Error!u32 {
             const size = cmd.encodingSize();
             const pos = self.tail;
-            if (N - pos < size) return error.OutOfMemory;
+            if (N - pos < size) return Error.OutOfMemory;
 
             self.tail = cmd.encode(&self.buffer, pos);
             return pos;
@@ -259,7 +261,7 @@ pub fn CommandList(comptime N: u32) type {
         // since it entangles CommandList with the main ui context.
         // Maybe this separation of data structures was not a good idea...
 
-        pub fn pushJump(self: *Self) !u32 {
+        pub fn pushJump(self: *Self) Error!u32 {
             // NOTE (Matteo): Enforce a loop by default
             return self.push(.{ .Jump = self.tail });
         }
@@ -313,7 +315,7 @@ pub fn CommandList(comptime N: u32) type {
 
         //=== High-level push API ===//
 
-        pub fn pushClip(self: *Self, rect: Rect) !void {
+        pub fn pushClip(self: *Self, rect: Rect) Error!void {
             _ = try self.push(.{ .Clip = rect });
         }
 
@@ -323,7 +325,7 @@ pub fn CommandList(comptime N: u32) type {
             pos: Vec2,
             color: Color,
             font: *const Font,
-        ) !void {
+        ) Error!void {
             _ = try self.push(.{ .Text = .{
                 .str = str,
                 .pos = pos,
@@ -332,11 +334,11 @@ pub fn CommandList(comptime N: u32) type {
             } });
         }
 
-        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
+        pub fn pushIcon(self: *Self, id: Icon, rect: Rect, color: Color) Error!void {
             _ = try self.push(.{ .Icon = .{ .id = id, .rect = rect, .color = color } });
         }
 
-        pub fn pushLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) !void {
+        pub fn pushLine(self: *Self, p0: Vec2, p1: Vec2, color: Color) Error!void {
             _ = try self.push(.{ .Line = .{ .p0 = p0, .p1 = p1, .color = color } });
         }
 
@@ -345,7 +347,7 @@ pub fn CommandList(comptime N: u32) type {
             rect: Rect,
             color: Color,
             opts: CommandOptions,
-        ) !void {
+        ) Error!void {
             _ = try self.push(.{ .Rect = .{
                 .rect = rect,
                 .color = color,
@@ -358,7 +360,7 @@ pub fn CommandList(comptime N: u32) type {
             ellipse: Ellipse,
             color: Color,
             opts: CommandOptions,
-        ) !void {
+        ) Error!void {
             _ = try self.push(.{ .Circ = .{
                 .ellipse = ellipse,
                 .color = color,
@@ -372,7 +374,7 @@ pub fn CommandList(comptime N: u32) type {
             radius: Vec2,
             color: Color,
             opts: CommandOptions,
-        ) !void {
+        ) Error!void {
             try self.pushEllipse(center, Ellipse.circle(center, radius), color, opts);
         }
     };

@@ -26,6 +26,8 @@ pub const Id = u32;
 pub const command = @import("command.zig");
 pub const atlas = @import("atlas.zig");
 
+pub const DrawError = command.Error;
+
 pub const Clip = enum(u2) {
     None,
     Part,
@@ -165,11 +167,12 @@ pub fn Ui(comptime config: Config) type {
 
         //=== Inner types ===//
 
-        // NOTE (Matteo): Declare here because are configurable
+        // NOTE (Matteo): Those types are declared here since they depend on
+        // comptime configuration parameters
 
         pub const Real = config.real_type;
 
-        pub const DrawFrameFn = *const fn (self: *Self, rect: Rect, color: ColorId) void;
+        pub const DrawFrameFn = *const fn (self: *Self, rect: Rect, color: ColorId) DrawError!void;
 
         const LayoutType = enum(u2) { None = 0, Relative = 1, Absolute = 2 };
 
@@ -274,7 +277,7 @@ pub fn Ui(comptime config: Config) type {
             assert(self.layout_stack.len == 0);
 
             self.command_list.clear();
-            self.root_list.resize(0) catch unreachable;
+            try self.root_list.resize(0);
 
             self.scroll_target = null;
             self.hover_root = self.next_hover_root;
@@ -774,7 +777,9 @@ pub fn Ui(comptime config: Config) type {
                     if (line_end == str.len or str[line_end] == '\n') break;
                 }
 
-                self.drawText(font, str[line_start..line_end], r.pt, color) catch unreachable;
+                // TODO (Matteo): Improve - If drawing fails, we can bail out since
+                // future calls will fail too
+                self.drawText(font, str[line_start..line_end], r.pt, color) catch return;
                 cursor = line_end + 1;
             }
         }
@@ -805,7 +810,10 @@ pub fn Ui(comptime config: Config) type {
 
             // Draw
             self.drawControlFrame(.Button, rect, state, .{});
-            if (icon != .None) self.drawIcon(icon, rect, self.style.getColor(.Text)) catch unreachable;
+            if (icon != .None) {
+                // TODO (Matteo): Is not drawing on error the right choice?
+                self.drawIcon(icon, rect, self.style.getColor(.Text)) catch {};
+            }
             if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
 
             // Handle click
@@ -830,7 +838,10 @@ pub fn Ui(comptime config: Config) type {
             const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
             self.drawControlFrame(.Base, box, state, .{});
 
-            if (checked.*) self.drawIcon(.Check, box, self.style.getColor(.Text)) catch unreachable;
+            if (checked.*) {
+                // TODO (Matteo): Is not drawing on error the right choice?
+                self.drawIcon(.Check, box, self.style.getColor(.Text)) catch {};
+            }
 
             self.drawControlText(
                 str,
@@ -1233,7 +1244,8 @@ pub fn Ui(comptime config: Config) type {
                     if (state.focused and self.input.mouse_pressed.left) {
                         cnt.open = false;
                     }
-                    self.drawIcon(.Close, rect, self.style.getColor(.TitleText)) catch unreachable;
+                    // TODO (Matteo): Is not drawing on error the right choice?
+                    self.drawIcon(.Close, rect, self.style.getColor(.TitleText)) catch {};
                 }
 
                 // Remove title from body
@@ -1324,7 +1336,7 @@ pub fn Ui(comptime config: Config) type {
             const id = self.getId(name);
             self.id_stack.append(id) catch return false;
 
-            const slot = self.getContainerById(id, opts) orelse unreachable;
+            const slot = self.getContainerById(id, opts) orelse return false;
 
             if (self.container_stack.append(slot)) {
                 var cnt = &self.containers[slot];
@@ -1400,28 +1412,28 @@ pub fn Ui(comptime config: Config) type {
                 pos.x = rect.pt.x + self.style.padding;
             }
 
+            // TODO (Matteo): Is not drawing on error the right choice?
             self.drawTextClipped(
                 font,
                 str,
                 pos,
                 self.style.getColor(color),
                 rect.intersect(self.peekClipRect()),
-            ) catch unreachable;
+            ) catch {};
         }
 
         inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
             // NOTE (Matteo): Helper to abbreviate the calls involving the function
             // pointer - ugly?
-            self.draw_frame(self, rect, color_id);
+            // TODO (Matteo): Is not drawing on error the right choice?
+            self.draw_frame(self, rect, color_id) catch {};
         }
 
-        fn drawDefaultFrame(self: *Self, frame: Rect, color_id: ColorId) void {
+        fn drawDefaultFrame(self: *Self, frame: Rect, color_id: ColorId) DrawError!void {
             const rect = self.peekClipRect().intersect(frame);
             if (rect.isEmpty()) return;
 
-            // TODO (Matteo): Review / improve.
-            // Ignoring OOM here means something will not be drawn
-            self.command_list.pushRect(rect, self.style.getColor(color_id), .{}) catch return;
+            try self.command_list.pushRect(rect, self.style.getColor(color_id), .{});
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
@@ -1430,14 +1442,11 @@ pub fn Ui(comptime config: Config) type {
 
                     const shadow = self.style.getColor(.BorderShadow);
                     if (shadow.a != 0) {
-                        self.drawBox(
-                            bound.move(Vec2{ .x = 1, .y = 1 }),
-                            shadow,
-                        ) catch return;
+                        try self.drawBox(bound.move(Vec2{ .x = 1, .y = 1 }), shadow);
                     }
 
                     const border = self.style.getColor(.Border);
-                    if (border.a != 0) self.drawBox(bound, border) catch return;
+                    if (border.a != 0) try self.drawBox(bound, border);
                 },
             }
         }
@@ -1449,12 +1458,12 @@ pub fn Ui(comptime config: Config) type {
         // list memory is exhausted. We could simply ignore and not draw but propagating
         // the error is useful to inform higher level decisions
 
-        pub fn drawRect(self: *Self, rect: Rect, color: Color) !void {
+        pub fn drawRect(self: *Self, rect: Rect, color: Color) DrawError!void {
             const clipped = self.peekClipRect().intersect(rect);
             if (!clipped.isEmpty()) try self.command_list.pushRect(clipped, color, .{});
         }
 
-        pub fn drawBox(self: *Self, rect: Rect, color: Color) !void {
+        pub fn drawBox(self: *Self, rect: Rect, color: Color) DrawError!void {
             const clipped = self.peekClipRect().intersect(rect);
             if (!clipped.isEmpty()) try self.command_list.pushRect(
                 clipped,
@@ -1473,7 +1482,7 @@ pub fn Ui(comptime config: Config) type {
             return drawTextClipped(self, font, str, pos, color, self.peekClipRect());
         }
 
-        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) !void {
+        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) DrawError!void {
             const clip = self.peekClipRect();
 
             switch (rect.checkClip(clip)) {
@@ -1497,7 +1506,7 @@ pub fn Ui(comptime config: Config) type {
             pos: Vec2,
             color: Color,
             clip: Rect,
-        ) !void {
+        ) DrawError!void {
             const rect = Rect{ .pt = pos, .sz = font.measure(str) };
 
             switch (rect.checkClip(clip)) {
