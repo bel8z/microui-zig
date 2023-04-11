@@ -133,7 +133,7 @@ pub fn main() !void {
 
         // process frame
         {
-            try ui.beginFrame(&input);
+            try ui.beginFrame(&input, .{ .x = width, .y = height });
             defer ui.endFrame();
 
             try testWindow(ui);

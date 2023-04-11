@@ -238,6 +238,9 @@ pub fn Ui(comptime config: Config) type {
         // TODO (Matteo): Review - used to intercept missing calls to 'init'
         init_code: u16,
 
+        // TODO (Matteo): Experimental
+        bounds: Rect = Rect.unclipped,
+
         //=== Initialization ===//
 
         pub fn init(self: *Self, font: *Font, draw_frame: ?DrawFrameFn) void {
@@ -267,7 +270,7 @@ pub fn Ui(comptime config: Config) type {
             return Input.init(buf);
         }
 
-        pub fn beginFrame(self: *Self, input: *Input) !void {
+        pub fn beginFrame(self: *Self, input: *Input, screen_size: Vec2) !void {
             if (self.init_code != 0x1DEA) return error.NotInitialized;
 
             // Check stacks
@@ -291,6 +294,9 @@ pub fn Ui(comptime config: Config) type {
             self.curr_focus = 0;
 
             self.frame +%= 1; // wrapping increment, overflow is somewhat expected
+
+            // TODO (Matteo): Experimental
+            self.bounds.sz = screen_size;
         }
 
         pub fn endFrame(self: *Self) void {
@@ -492,6 +498,49 @@ pub fn Ui(comptime config: Config) type {
             }
         }
 
+        fn beginRootContainer(self: *Self, id: Id, slot: PoolSlot, cnt: *Container) void {
+            // Push root container
+            // TODO (Matteo): Handle gracefully by returning 'false' and
+            // pop from affected stacks
+            self.id_stack.append(id) catch unreachable;
+            self.container_stack.append(slot) catch unreachable;
+            self.root_list.append(cnt) catch unreachable;
+
+            // Push head command
+            cnt.head = self.command_list.pushJump() catch unreachable;
+            // Set as hover root if the mouse is overlapping this container and it has a
+            // higher zindex than the current hover root
+            if (cnt.rect.overlaps(self.input.mouse_pos) and
+                (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
+            {
+                self.next_hover_root = cnt;
+            }
+
+            // Clipping is reset here in case a root-container is made within
+            // another root-containers's begin/end block; this prevents the inner
+            // root-container being clipped to the outer
+            self.clip_stack.append(self.bounds) catch unreachable;
+            self.drawBox(self.bounds, .{ .a = 255, .r = 255, .b = 255 }) catch {};
+        }
+
+        fn endRootContainer(self: *Self) void {
+            const slot = self.container_stack.pop();
+            var cnt = &self.containers[slot];
+
+            // Push tail 'goto' jump command and set head 'skip' command. the final steps
+            // on initing these are done in 'endFrame'
+            cnt.tail = self.command_list.pushJump() catch unreachable;
+            self.command_list.setJump(cnt.head, self.command_list.tail);
+
+            // Pop container
+            const layout = self.layout_stack.pop();
+            cnt.content_size = layout.max.sub(layout.body.pt);
+            self.popId();
+
+            // Pop "unclipped" rect
+            self.popClipRect();
+        }
+
         //=== Layout management ===//
 
         pub fn layoutBeginColumn(self: *Self) void {
@@ -611,6 +660,7 @@ pub fn Ui(comptime config: Config) type {
             // NOTE (Matteo): Originally there was a call to 'layoutRow' here, in order
             // to force a row with 0 size. 'layoutNext' does the job already if a 0-sized
             // layout is found.
+            self.layoutRow(.{0}, 0);
         }
 
         fn peekLayout(self: *Self) *Layout {
@@ -625,6 +675,7 @@ pub fn Ui(comptime config: Config) type {
             const last = self.peekClipRect();
             const clip = last.intersect(rect);
             self.clip_stack.append(clip) catch unreachable;
+            self.drawBox(clip, .{ .a = 255, .r = 255, .b = 255 }) catch {};
         }
 
         pub fn popClipRect(self: *Self) void {
@@ -1189,27 +1240,7 @@ pub fn Ui(comptime config: Config) type {
 
             if (cnt.rect.sz.x == 0) cnt.rect = init_rect;
 
-            // Push root container
-            // TODO (Matteo): Handle gracefully by returning 'false' and
-            // pop from affected stacks
-            self.id_stack.append(id) catch unreachable;
-            self.container_stack.append(slot) catch unreachable;
-            self.root_list.append(cnt) catch unreachable;
-
-            // Push head command
-            cnt.head = self.command_list.pushJump() catch unreachable;
-            // Set as hover root if the mouse is overlapping this container and it has a
-            // higher zindex than the current hover root
-            if (cnt.rect.overlaps(self.input.mouse_pos) and
-                (self.next_hover_root == null or cnt.zindex > self.next_hover_root.?.zindex))
-            {
-                self.next_hover_root = cnt;
-            }
-
-            // Clipping is reset here in case a root-container is made within
-            // another root-containers's begin/end block; this prevents the inner
-            // root-container being clipped to the outer
-            self.clip_stack.append(Rect.unclipped) catch unreachable;
+            self.beginRootContainer(id, slot, cnt);
 
             // Draw frame
             if (opts.frame) self.drawFrame(cnt.rect, .WindowBg);
@@ -1289,22 +1320,7 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn endWindow(self: *Self) void {
             self.popClipRect();
-
-            const slot = self.container_stack.pop();
-            var cnt = &self.containers[slot];
-
-            // Push tail 'goto' jump command and set head 'skip' command. the final steps
-            // on initing these are done in 'endFrame'
-            cnt.tail = self.command_list.pushJump() catch unreachable;
-            self.command_list.setJump(cnt.head, self.command_list.tail);
-
-            // Pop container
-            const layout = self.layout_stack.pop();
-            cnt.content_size = layout.max.sub(layout.body.pt);
-            self.popId();
-
-            // Pop "unclipped" rect
-            self.popClipRect();
+            self.endRootContainer();
         }
 
         pub fn openPopup(self: *Self, name: []const u8) void {
@@ -1335,24 +1351,39 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn beginPanel(self: *Self, name: []const u8, opts: OptionFlags) bool {
             const id = self.getId(name);
-            self.id_stack.append(id) catch return false;
-
             const slot = self.getContainerById(id, opts) orelse return false;
+            var cnt = &self.containers[slot];
 
-            if (self.container_stack.append(slot)) {
-                var cnt = &self.containers[slot];
+            self.beginRootContainer(id, slot, cnt);
+
+            if (self.container_stack.len == 1) {
+                // Root panel takes all the available space
+                cnt.rect = self.bounds;
+
+                self.pushContainerBody(cnt, cnt.rect, opts) catch {
+                    self.endRootContainer();
+                    return false;
+                };
+
+                // FIXME (Matteo): This hack is required otherwise empty panels
+                // will cause a crash in endPanel due to integer overflow
+                _ = self.layoutNext();
+            } else {
                 cnt.rect = self.layoutNext();
 
-                if (self.pushContainerBody(cnt, cnt.rect, opts)) {
-                    if (opts.frame) self.drawFrame(cnt.rect, .PanelBg);
-                    self.pushClipRect(cnt.body);
-                } else |_| {
-                    _ = self.container_stack.pop();
+                self.pushContainerBody(cnt, cnt.rect, opts) catch {
+                    self.endRootContainer();
                     return false;
-                }
-            } else |_| {
-                return false;
+                };
             }
+
+            if (opts.frame) {
+                self.drawFrame(cnt.rect, .PanelBg);
+            } else {
+                self.drawRect(cnt.rect, self.style.getColor(.PanelBg)) catch {};
+            }
+
+            self.pushClipRect(cnt.body);
 
             return true;
         }
@@ -1361,10 +1392,7 @@ pub fn Ui(comptime config: Config) type {
             // NOTE (Matteo): This function is considered infallible because
             // it should be called only if beginPanel returned true
             self.popClipRect();
-            const layout = self.layout_stack.pop();
-            const slot = self.container_stack.pop();
-            self.containers[slot].content_size = layout.max.sub(layout.body.pt);
-            self.popId();
+            self.endRootContainer();
         }
 
         //=== Drawing ===//
@@ -1490,7 +1518,7 @@ pub fn Ui(comptime config: Config) type {
                 .All => return,
                 .Part => {
                     try self.command_list.pushClip(clip);
-                    defer self.command_list.pushClip(Rect.unclipped) catch {};
+                    defer self.command_list.pushClip(self.bounds) catch {};
 
                     try self.command_list.pushIcon(id, rect, color);
                 },
@@ -1514,7 +1542,7 @@ pub fn Ui(comptime config: Config) type {
                 .All => return,
                 .Part => {
                     try self.command_list.pushClip(clip);
-                    defer self.command_list.pushClip(Rect.unclipped) catch {};
+                    defer self.command_list.pushClip(self.bounds) catch {};
 
                     try self.command_list.pushText(str, pos, color, font);
                 },
