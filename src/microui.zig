@@ -520,7 +520,6 @@ pub fn Ui(comptime config: Config) type {
             // another root-containers's begin/end block; this prevents the inner
             // root-container being clipped to the outer
             self.clip_stack.append(self.bounds) catch unreachable;
-            self.drawBox(self.bounds, .{ .a = 255, .r = 255, .b = 255 }) catch {};
         }
 
         fn endRootContainer(self: *Self) void {
@@ -675,7 +674,6 @@ pub fn Ui(comptime config: Config) type {
             const last = self.peekClipRect();
             const clip = last.intersect(rect);
             self.clip_stack.append(clip) catch unreachable;
-            self.drawBox(clip, .{ .a = 255, .r = 255, .b = 255 }) catch {};
         }
 
         pub fn popClipRect(self: *Self) void {
