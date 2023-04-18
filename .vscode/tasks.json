@@ -6,22 +6,15 @@
         {
             "label": "Build",
             "type": "shell",
-            "command": "zig build --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "command": "zig",
+            "args": [
+                "build",
+                //--prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache
+            ],
             "group": {
                 "kind": "build",
             },
-            "problemMatcher":{
-                "owner": "zig",
-                "fileLocation": "absolute",
-                "pattern":{
-                    "regexp": "(.+):(\\d+):(\\d+): (error|note):(.+)",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            },
+            "problemMatcher": "$zig",
             "presentation": {
                 "reveal": "silent",
                 "revealProblems": "onProblem",
@@ -30,7 +23,11 @@
         {
             "label": "Run C demo",
             "type": "shell",
-            "command": "zig build c --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache -Drelease-small",
+            "command": "zig",
+            "args": [
+                "build",
+                "c",
+            ],
             "group": {
                 "kind": "build",
             },
@@ -38,29 +35,21 @@
         {
             "label": "Run Zig demo",
             "type": "shell",
-            "command": "zig build z --prefix ./build/ --prefix-lib-dir . --prefix-exe-dir . --cache-dir ./build/cache",
+            "command": "zig",
+            "args": [
+                "build",
+                "z",
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher":{
-                "owner": "zig",
-                "fileLocation": "absolute",
-                "pattern":{
-                    "regexp": "(.+):(\\d+):(\\d+): (error|note):(.+)",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            },
+            "problemMatcher": "$zig",
             "presentation": {
                 "reveal": "silent",
                 "revealProblems": "onProblem",
                 "close": true
             }
         },
-        
     ]
 }

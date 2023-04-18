@@ -337,7 +337,7 @@ pub fn Ui(comptime config: Config) type {
 
             // TODO (Matteo): Review
             // Set root container jump commands
-            for (roots) |cnt, i| {
+            for (roots, 0..) |cnt, i| {
                 // If this is the first container then make the first command jump to it.
                 // Otherwise set the previous container's tail to jump to this one
                 var jump = if (i == 0) cnt.head else roots[i - 1].tail;
@@ -1906,7 +1906,7 @@ fn Pool(comptime N: u32) type {
 
             if (curr_frame == 0) {
                 // First frame, find first free slot
-                for (self.items) |item, index| {
+                for (self.items, 0..) |item, index| {
                     if (item.id == 0) {
                         slot = @intCast(PoolSlot, index);
                         break;
@@ -1916,7 +1916,7 @@ fn Pool(comptime N: u32) type {
                 var frame = curr_frame;
 
                 // Find the least recently updated item
-                for (self.items) |item, index| {
+                for (self.items, 0..) |item, index| {
                     if (item.last_update < frame) {
                         frame = item.last_update;
                         slot = @intCast(PoolSlot, index);
@@ -1933,7 +1933,7 @@ fn Pool(comptime N: u32) type {
         }
 
         pub fn getSlot(self: *Self, id: Id) ?PoolSlot {
-            for (self.items) |item, index| {
+            for (self.items, 0..) |item, index| {
                 if (item.id == id) return @intCast(PoolSlot, index);
             }
 
