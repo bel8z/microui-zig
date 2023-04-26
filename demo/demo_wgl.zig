@@ -179,6 +179,54 @@ fn wndProc(
             );
             _ = InvalidateRect(win, null, win32.TRUE);
         },
+        win32.user32.WM_LBUTTONDOWN => {
+            input.mouseDown(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .left = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
+        win32.user32.WM_MBUTTONDOWN => {
+            input.mouseDown(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .middle = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
+        win32.user32.WM_RBUTTONDOWN => {
+            input.mouseDown(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .right = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
+        win32.user32.WM_LBUTTONUP => {
+            input.mouseUp(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .left = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
+        win32.user32.WM_MBUTTONUP => {
+            input.mouseUp(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .middle = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
+        win32.user32.WM_RBUTTONUP => {
+            input.mouseUp(
+                @intCast(i32, 0xFFFF & lparam),
+                @intCast(i32, 0xFFFF & (lparam >> 16)),
+                .{ .right = true },
+            );
+            _ = InvalidateRect(win, null, win32.TRUE);
+        },
         else => return win32.user32.defWindowProcW(win, msg, wparam, lparam),
     }
 
