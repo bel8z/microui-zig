@@ -69,7 +69,10 @@ pub fn main() !void {
 
     const ctx = try wgl.createContext(dc, 1, 0);
     _ = try wgl.makeCurrent(dc, ctx);
-    try wgl.setSwapInterval(1);
+
+    // NOTE (Matteo): VSync is disabled because the frames are painted only
+    // in response to events, not in a continous render loop
+    try wgl.setSwapInterval(0);
 
     // init renderer
     const size = getClientSize(window);
