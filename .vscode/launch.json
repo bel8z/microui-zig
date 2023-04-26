@@ -7,8 +7,16 @@
         {
             "type": "cppvsdbg",
             "request": "launch",
-            "name": "Launch Zig Demo",
-            "program": "${workspaceRoot}/zig-out/bin/microui_demo_z.exe",
+            "name": "Launch Zig Demo SDL",
+            "program": "${workspaceRoot}/zig-out/bin/microui_demo_sdl.exe",
+            "cwd": "${workspaceRoot}/zig-out/bin",
+            "preLaunchTask": "Build",
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "Launch Zig Demo WGL",
+            "program": "${workspaceRoot}/zig-out/bin/microui_demo_wgl.exe",
             "cwd": "${workspaceRoot}/zig-out/bin",
             "preLaunchTask": "Build",
         },

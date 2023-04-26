@@ -33,12 +33,12 @@
             },
         },
         {
-            "label": "Run Zig demo",
+            "label": "Run Zig demo (SDL)",
             "type": "shell",
             "command": "zig",
             "args": [
                 "build",
-                "z",
+                "sdl",
             ],
             "group": {
                 "kind": "build",

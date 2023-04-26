@@ -4,8 +4,10 @@ const assert = std.debug.assert;
 const mu = @import("microui");
 const atlas = mu.atlas;
 
+const root = @import("root");
+
 const c = @cImport({
-    @cInclude("SDL2/SDL_opengl.h");
+    @cInclude(root.gl_h);
 });
 
 const Renderer = @This();

@@ -10,50 +10,6 @@ pub fn module(b: *Builder) *Module {
     });
 }
 
-fn setupDemo(
-    b: *Builder,
-    target: std.zig.CrossTarget,
-    demo: *std.build.LibExeObjStep,
-    run_step: *std.build.Step,
-) void {
-    demo.linkLibC();
-
-    if (target.isWindows()) {
-        demo.linkSystemLibrary("kernel32");
-        demo.linkSystemLibrary("user32");
-        demo.linkSystemLibrary("gdi32");
-        demo.linkSystemLibrary("opengl32");
-        demo.linkSystemLibrary("setupapi");
-        demo.linkSystemLibrary("winmm");
-        demo.linkSystemLibrary("imm32");
-        demo.linkSystemLibrary("version");
-        demo.linkSystemLibrary("oleaut32");
-        demo.linkSystemLibrary("ole32");
-
-        demo.subsystem = .Windows;
-
-        const path =
-            switch (target.getCpuArch()) {
-            .x86 => "demo/sdl2/i686-w64-mingw32",
-            .x86_64 => "demo/sdl2/x86_64-w64-mingw32",
-            else => unreachable,
-        };
-
-        demo.addIncludePath(std.mem.concat(b.allocator, u8, &.{ path, "/include" }) catch unreachable);
-        demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2.a" }) catch unreachable);
-        demo.addObjectFile(std.mem.concat(b.allocator, u8, &.{ path, "/lib/libSDL2main.a" }) catch unreachable);
-    } else {
-        demo.linkSystemLibrary("libsdl2");
-        demo.linkSystemLibrary("GL");
-    }
-
-    const run_cmd = demo.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
-
-    run_step.dependOn(&run_cmd.step);
-}
-
 pub fn build(b: *Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -68,65 +24,134 @@ pub fn build(b: *Builder) void {
 
     const microui = module(b);
 
-    const flags = [_][]const u8{
-        "-std=c11",
-        "-pedantic",
-        "-Werror",
-        "-Wall",
-        "-Wpedantic",
-        // TODO (Matteo): fix compiles with this flag enabled
-        // "-Wextra",
+    const sdl_path =
+        switch (target.getCpuArch()) {
+        .x86 => "demo/sdl2/i686-w64-mingw32",
+        .x86_64 => "demo/sdl2/x86_64-w64-mingw32",
+        else => unreachable,
     };
 
-    var lib = b.addStaticLibrary(.{
-        .name = "microui",
-        .target = target,
-        .optimize = optimize,
-    });
+    // C Demo
+    {
+        const flags = [_][]const u8{
+            "-std=c11",
+            "-pedantic",
+            "-Werror",
+            "-Wall",
+            "-Wpedantic",
+            // TODO (Matteo): fix compiles with this flag enabled
+            // "-Wextra",
+        };
 
-    lib.install();
-    lib.linkLibC();
-    lib.addIncludePath("src");
-    lib.addCSourceFile("src/microui.c", &flags);
+        var lib = b.addStaticLibrary(.{
+            .name = "microui",
+            .target = target,
+            .optimize = optimize,
+        });
+        lib.install();
+        lib.linkLibC();
+        lib.addIncludePath("src");
+        lib.addCSourceFile("src/microui.c", &flags);
 
-    const demo_c = b.addExecutable(.{
-        .name = "microui_demo_c",
-        .target = target,
-        .optimize = optimize,
-    });
+        const demo_c = b.addExecutable(.{
+            .name = "microui_demo_c",
+            .target = target,
+            .optimize = optimize,
+        });
 
-    demo_c.install();
-    demo_c.addIncludePath("src");
-    demo_c.addIncludePath("demo");
-    demo_c.addCSourceFiles(
-        &.{
-            "demo/main.c",
-            "demo/renderer.c",
-        },
-        &flags,
-    );
-    demo_c.linkLibrary(lib);
-    setupDemo(b, target, demo_c, b.step("c", "Run the C demo app"));
+        demo_c.subsystem = .Windows;
+        demo_c.install();
+        demo_c.addIncludePath("src");
+        demo_c.addIncludePath("demo");
+        demo_c.addCSourceFiles(
+            &.{
+                "demo/main.c",
+                "demo/renderer.c",
+            },
+            &flags,
+        );
+        demo_c.linkLibC();
+        demo_c.linkLibrary(lib);
+        demo_c.linkSystemLibrary("gdi32");
+        demo_c.linkSystemLibrary("opengl32");
+        demo_c.linkSystemLibrary("setupapi");
+        demo_c.linkSystemLibrary("winmm");
+        demo_c.linkSystemLibrary("imm32");
+        demo_c.linkSystemLibrary("version");
+        demo_c.linkSystemLibrary("oleaut32");
+        demo_c.linkSystemLibrary("ole32");
+        demo_c.addIncludePath(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable);
+        demo_c.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable);
+        demo_c.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable);
 
-    const demo_z = b.addExecutable(.{
-        .name = "microui_demo_z",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "demo/demo.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+        const run_cmd = demo_c.run();
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| run_cmd.addArgs(args);
 
-    demo_z.install();
-    demo_z.addIncludePath("src");
-    demo_z.addIncludePath("demo");
-    demo_z.addCSourceFiles(
-        &.{"demo/renderer.c"},
-        &flags,
-    );
-    demo_z.linkLibrary(lib);
-    demo_z.addModule("microui", microui);
-    setupDemo(b, target, demo_z, b.step("z", "Run the Zig demo app"));
+        b.step("c", "Run the C demo app").dependOn(&run_cmd.step);
+    }
+
+    // Zig demo - SDL
+    {
+        const demo_sdl = b.addExecutable(.{
+            .name = "microui_demo_sdl",
+            // In this case the main source file is merely a path, however, in more
+            // complicated build scripts, this could be a generated file.
+            .root_source_file = .{ .path = "demo/demo_sdl.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+
+        demo_sdl.subsystem = .Windows;
+        demo_sdl.install();
+        demo_sdl.addIncludePath("src");
+        demo_sdl.addIncludePath("demo");
+        demo_sdl.addModule("microui", microui);
+        demo_sdl.linkLibC();
+        demo_sdl.linkSystemLibrary("gdi32");
+        demo_sdl.linkSystemLibrary("opengl32");
+        demo_sdl.linkSystemLibrary("setupapi");
+        demo_sdl.linkSystemLibrary("winmm");
+        demo_sdl.linkSystemLibrary("imm32");
+        demo_sdl.linkSystemLibrary("version");
+        demo_sdl.linkSystemLibrary("oleaut32");
+        demo_sdl.linkSystemLibrary("ole32");
+        demo_sdl.addIncludePath(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable);
+        demo_sdl.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable);
+        demo_sdl.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable);
+
+        const run_cmd = demo_sdl.run();
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| run_cmd.addArgs(args);
+
+        b.step("sdl", "Run the Zig demo app - SDL backend").dependOn(&run_cmd.step);
+    }
+
+    // Zig demo - WGL
+    {
+        const demo_wgl = b.addExecutable(.{
+            .name = "microui_demo_wgl",
+            // In this case the main source file is merely a path, however, in more
+            // complicated build scripts, this could be a generated file.
+            .root_source_file = .{ .path = "demo/demo_wgl.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+
+        demo_wgl.subsystem = .Windows;
+        demo_wgl.install();
+        demo_wgl.addIncludePath("src");
+        demo_wgl.addIncludePath("demo");
+        demo_wgl.addModule("microui", microui);
+        demo_wgl.linkLibC();
+        demo_wgl.linkSystemLibrary("opengl32");
+
+        const run_cmd = demo_wgl.run();
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| run_cmd.addArgs(args);
+
+        b.step("wgl", "Run the Zig demo app - WGL backend").dependOn(&run_cmd.step);
+    }
 
     // Creates a step for unit testing.
     const tests = b.addTest(.{

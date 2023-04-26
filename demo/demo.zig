@@ -1,169 +1,19 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
-
 const mu = @import("microui");
 const Ui = mu.Ui(.{});
 const Font = mu.Font;
-
-const Renderer = @import("renderer.zig");
-
-const custom_theme = true;
-
-const button_map = init: {
-    var value = [_]mu.MouseButtons{.{}} ** 256;
-    value[c.SDL_BUTTON_LEFT & 0xff].left = true;
-    value[c.SDL_BUTTON_RIGHT & 0xff].right = true;
-    value[c.SDL_BUTTON_MIDDLE & 0xff].middle = true;
-    break :init value;
-};
-
-const key_map = init: {
-    var value = [_]mu.Keys{.{}} ** 256;
-    value[c.SDLK_LSHIFT & 0xff].shift = true;
-    value[c.SDLK_RSHIFT & 0xff].shift = true;
-    value[c.SDLK_LCTRL & 0xff].ctrl = true;
-    value[c.SDLK_RCTRL & 0xff].ctrl = true;
-    value[c.SDLK_LALT & 0xff].alt = true;
-    value[c.SDLK_RALT & 0xff].alt = true;
-    value[c.SDLK_RETURN & 0xff].enter = true;
-    value[c.SDLK_KP_ENTER & 0xff].enter = true;
-    value[c.SDLK_BACKSPACE & 0xff].backspace = true;
-    break :init value;
-};
 
 var _logbuf = [_]u8{0} ** 64000;
 var logbuf = std.io.fixedBufferStream(_logbuf[0..]);
 var logbuf_updated = false;
 
-var bg = mu.Color{ .r = 90, .g = 95, .b = 100, .a = 255 };
 var checks = [3]bool{ true, false, true };
 
-pub fn main() !void {
-    const ui_alloc = std.heap.page_allocator;
-
-    // init SDL and renderer
-    _ = c.SDL_Init(c.SDL_INIT_EVERYTHING);
-
-    const width = 800;
-    const height = 600;
-
-    var window = c.SDL_CreateWindow(
-        null,
-        c.SDL_WINDOWPOS_UNDEFINED,
-        c.SDL_WINDOWPOS_UNDEFINED,
-        width,
-        height,
-        c.SDL_WINDOW_OPENGL,
-    );
-    _ = c.SDL_GL_CreateContext(window);
-
-    var r = try Renderer.init(width, height, ui_alloc);
-    defer ui_alloc.destroy(r);
-
-    // init microui
-    var ui = try ui_alloc.create(Ui);
-    ui.init(&r.font, null);
-
-    // NOTE (Matteo): Theming attempt
-    var style = ui._style;
-    if (custom_theme) {
-        style.setColor(.Text, rgba(0.90, 0.90, 0.90, 1.00));
-        style.setColor(.Border, rgba(0.54, 0.57, 0.51, 0.50));
-        style.setColor(.BorderShadow, rgba(0.14, 0.16, 0.11, 0.52));
-        style.setColor(.TitleBg, rgba(0.24, 0.27, 0.20, 1.00));
-        style.setColor(.TitleText, style.getColor(.Text));
-        style.setColor(.WindowBg, rgba(0.29, 0.34, 0.26, 1.00));
-        style.setColor(.Header, rgba(0.35, 0.42, 0.31, 1.00));
-        style.setColor(.HeaderHover, rgba(0.35, 0.42, 0.31, 0.60));
-        style.setColor(.HeaderFocus, rgba(0.54, 0.57, 0.51, 0.50));
-        style.setColor(.Button, rgba(0.29, 0.34, 0.26, 0.40));
-        style.setColor(.ButtonHover, rgba(0.35, 0.42, 0.31, 1.00));
-        style.setColor(.ButtonFocus, rgba(0.54, 0.57, 0.51, 0.50));
-        style.setColor(.Base, rgba(0.29, 0.34, 0.26, 1.00));
-        style.setColor(.Base, rgba(0.24, 0.27, 0.20, 1.00));
-        style.setColor(.BaseHover, rgba(0.27, 0.30, 0.23, 1.00));
-        style.setColor(.BaseFocus, rgba(0.30, 0.34, 0.26, 1.00));
-        style.setColor(.ScrollBase, rgba(0.35, 0.42, 0.31, 1.00));
-        style.setColor(.ScrollThumb, rgba(0.23, 0.27, 0.21, 1.00));
-        // style.setColor(.ScrollThumb, rgba(0.25, 0.30, 0.22, 1.00));
-        // style.setColor(.ScrollThumb, rgba(0.28, 0.32, 0.24, 1.00));
-    }
-    ui.style = &style;
-
-    // main loop
-    var input = ui.getInput();
-
-    while (true) {
-        // handle SDL events
-        var e: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&e) != 0) {
-            switch (e.type) {
-                c.SDL_QUIT => return,
-
-                c.SDL_MOUSEMOTION => input.mouseMove(e.motion.x, e.motion.y),
-                c.SDL_MOUSEWHEEL => input.scroll(0, e.wheel.y * -30),
-                c.SDL_TEXTINPUT => input.textZ(@ptrCast([*:0]const u8, &e.text.text)),
-
-                c.SDL_MOUSEBUTTONDOWN => {
-                    const b = button_map[e.button.button & 0xff];
-                    input.mouseDown(e.button.x, e.button.y, b);
-                },
-
-                c.SDL_MOUSEBUTTONUP => {
-                    const b = button_map[e.button.button & 0xff];
-                    input.mouseUp(e.button.x, e.button.y, b);
-                },
-
-                c.SDL_KEYDOWN => {
-                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
-                    input.keyDown(key_map[k]);
-                },
-
-                c.SDL_KEYUP => {
-                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
-                    input.keyUp(key_map[k]);
-                },
-
-                else => {},
-            }
-        }
-
-        // process frame
-        {
-            try ui.beginFrame(&input, .{ .x = width, .y = height });
-            defer ui.endFrame();
-
-            try testWindow(ui);
-            _ = logWindow(ui);
-            styleWindow(ui);
-        }
-
-        // render
-        r.clear(bg);
-        var iter = ui.command_list.iter();
-        while (true) {
-            switch (iter.next()) {
-                .None => break,
-                .Clip => |cmd| r.setClipRect(cmd),
-                .Icon => |cmd| r.drawIcon(cmd.id, cmd.rect, cmd.color),
-                .Rect => |cmd| r.drawRect(cmd),
-                .Text => |cmd| {
-                    std.debug.assert(cmd.font == &r.font);
-                    r.drawText(cmd.str, cmd.pos, cmd.color);
-                },
-                else => unreachable,
-            }
-        }
-        r.flush();
-        _ = c.SDL_GL_SwapWindow(window);
-    }
-}
-
-fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
-    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
+pub fn frame(ui: anytype, bg: *mu.Color) !void {
+    try testWindow(ui, bg);
+    _ = logWindow(ui);
+    styleWindow(ui);
 }
 
 fn writeLog(text: []const u8) void {
@@ -178,7 +28,7 @@ fn writeLog(text: []const u8) void {
     logbuf_updated = true;
 }
 
-fn testWindow(ui: *Ui) !void {
+fn testWindow(ui: anytype, bg: *mu.Color) !void {
     // do window
     if (ui.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{})) {
         defer ui.endWindow();
@@ -290,7 +140,7 @@ fn testWindow(ui: *Ui) !void {
             ui.layoutEndColumn();
             // color preview */
             const r = ui.layoutNext();
-            ui.drawRect(r, bg) catch unreachable;
+            ui.drawRect(r, bg.*) catch unreachable;
             var buf: [32]u8 = undefined;
             ui.drawControlText(
                 try std.fmt.bufPrint(buf[0..], "#{X}{X}{X}", .{ bg.r, bg.g, bg.b }),
@@ -343,7 +193,7 @@ fn logWindow(ui: *Ui) void {
     }
 }
 
-fn styleWindow(ui: *Ui) void {
+fn styleWindow(ui: anytype) void {
     if (ui.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{})) {
         defer ui.endWindow();
 
@@ -395,12 +245,12 @@ fn styleWindow(ui: *Ui) void {
     }
 }
 
-fn sliderU8(ui: *Ui, value: *u8) bool {
+fn sliderU8(ui: anytype, value: *u8) bool {
     return sliderInt(u8, ui, value, std.math.minInt(u8), std.math.maxInt(u8));
 }
 
 // TODO (Matteo): Use type deduction? Move to microui proper?
-fn sliderInt(comptime T: type, ui: *Ui, value: *T, min: T, max: T) bool {
+fn sliderInt(comptime T: type, ui: anytype, value: *T, min: T, max: T) bool {
     var tmp = @intToFloat(f32, value.*);
 
     // NOTE (Matteo): This is required to have an unique id based on the value
