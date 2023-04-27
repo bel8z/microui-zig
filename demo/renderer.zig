@@ -122,28 +122,28 @@ pub fn drawRect(self: *Renderer, cmd: mu.command.RectCommand) void {
         // I reviewed the drawing API in order to support both stroked and filled rects
         // (and ellipses), so this implementation detail moved to the rendering layer
 
-        self.pushQuad(mu.Rect.init(
+        self.pushQuad(mu.rect(
             rect.pt.x + 1,
             rect.pt.y,
             rect.sz.x - 2,
             1,
         ), atlas.white, color);
 
-        self.pushQuad(mu.Rect.init(
+        self.pushQuad(mu.rect(
             rect.pt.x + 1,
             rect.pt.y + rect.sz.y - 1,
             rect.sz.x - 2,
             1,
         ), atlas.white, color);
 
-        self.pushQuad(mu.Rect.init(
+        self.pushQuad(mu.rect(
             rect.pt.x,
             rect.pt.y,
             1,
             rect.sz.y,
         ), atlas.white, color);
 
-        self.pushQuad(mu.Rect.init(
+        self.pushQuad(mu.rect(
             rect.pt.x + rect.sz.x - 1,
             rect.pt.y,
             1,

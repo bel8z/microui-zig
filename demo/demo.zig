@@ -30,7 +30,7 @@ fn writeLog(text: []const u8) void {
 
 fn testWindow(ui: anytype, bg: *mu.Color) !void {
     // do window
-    if (ui.beginWindow("Demo Window", mu.Rect.init(40, 40, 300, 450), .{})) {
+    if (ui.beginWindow("Demo Window", mu.rect(40, 40, 300, 450), .{})) {
         defer ui.endWindow();
 
         var win = ui.getCurrentContainer();
@@ -153,7 +153,7 @@ fn testWindow(ui: anytype, bg: *mu.Color) !void {
 }
 
 fn logWindow(ui: *Ui) void {
-    if (ui.beginWindow("Log Window", mu.Rect.init(350, 40, 300, 200), .{})) {
+    if (ui.beginWindow("Log Window", mu.rect(350, 40, 300, 200), .{})) {
         defer ui.endWindow();
 
         //  output text panel
@@ -194,7 +194,7 @@ fn logWindow(ui: *Ui) void {
 }
 
 fn styleWindow(ui: anytype) void {
-    if (ui.beginWindow("Style Editor", mu.Rect.init(350, 250, 300, 240), .{})) {
+    if (ui.beginWindow("Style Editor", mu.rect(350, 250, 300, 240), .{})) {
         defer ui.endWindow();
 
         const width = ui.getCurrentContainer().*.body.sz.x;
