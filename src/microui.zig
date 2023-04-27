@@ -18,7 +18,7 @@ test "MicroUi" {
 
     var input = ui.getInput();
 
-    try ui.beginFrame(&input);
+    try ui.beginFrame(&input, .{});
     defer ui.endFrame();
 }
 
@@ -569,7 +569,7 @@ pub fn Ui(comptime config: Config) type {
                 layout.widths[items] = widths[items];
             }
 
-            layout.position = Vec2{ .x = layout.indent, .y = layout.next_row };
+            layout.position = .{ .x = layout.indent, .y = layout.next_row };
             layout.size.y = height;
             layout.items = items;
             layout.item_index = 0;
@@ -604,7 +604,7 @@ pub fn Ui(comptime config: Config) type {
                 if (layout.item_index == layout.items) {
                     // NOTE (Matteo): Repositioning on the next row - original
                     // call was mu_layout_row(ctx, layout->items, NULL, layout->size.y)
-                    layout.position = Vec2{ .x = layout.indent, .y = layout.next_row };
+                    layout.position = .{ .x = layout.indent, .y = layout.next_row };
                     layout.item_index = 0;
                 }
 
@@ -652,8 +652,8 @@ pub fn Ui(comptime config: Config) type {
             comptime assert(min < 0);
 
             try self.layout_stack.append(Layout{
-                .body = Rect{ .pt = body.pt.sub(scroll), .sz = body.sz },
-                .max = Vec2{ .x = min, .y = min },
+                .body = .{ .pt = body.pt.sub(scroll), .sz = body.sz },
+                .max = .{ .x = min, .y = min },
             });
 
             // NOTE (Matteo): Originally there was a call to 'layoutRow' here, in order
@@ -670,10 +670,9 @@ pub fn Ui(comptime config: Config) type {
 
         //=== Clipping ===//
 
-        pub fn pushClipRect(self: *Self, rect: Rect) void {
+        pub fn pushClipRect(self: *Self, clip: Rect) void {
             const last = self.peekClipRect();
-            const clip = last.intersect(rect);
-            self.clip_stack.append(clip) catch unreachable;
+            self.clip_stack.append(last.intersect(clip)) catch unreachable;
         }
 
         pub fn popClipRect(self: *Self) void {
@@ -713,10 +712,10 @@ pub fn Ui(comptime config: Config) type {
         pub fn updateControl(
             self: *Self,
             id: Id,
-            rect: Rect,
+            bounds: Rect,
             opts: OptionFlags,
         ) ControlState {
-            const mouse_over = self.mouseOver(rect);
+            const mouse_over = self.mouseOver(bounds);
             const mouse_down = self.input.mouse_down.any();
             const mouse_pressed = self.input.mouse_pressed.any();
 
@@ -758,9 +757,9 @@ pub fn Ui(comptime config: Config) type {
             return state;
         }
 
-        pub fn mouseOver(self: *Self, rect: Rect) bool {
+        pub fn mouseOver(self: *Self, box: Rect) bool {
             const mouse = self.input.mouse_pos;
-            return rect.overlaps(mouse) and
+            return box.overlaps(mouse) and
                 self.peekClipRect().overlaps(mouse) and
                 self.inHoverRoot();
         }
@@ -855,16 +854,16 @@ pub fn Ui(comptime config: Config) type {
             else
                 self.getId(icon);
 
-            const rect = self.layoutNext();
-            const state = self.updateControl(id, rect, opts);
+            const bounds = self.layoutNext();
+            const state = self.updateControl(id, bounds, opts);
 
             // Draw
-            self.drawControlFrame(.Button, rect, state, .{});
+            self.drawControlFrame(.Button, bounds, state, .{});
             if (icon != .None) {
                 // TODO (Matteo): Is not drawing on error the right choice?
-                self.drawIcon(icon, rect, self.style.getColor(.Text)) catch {};
+                self.drawIcon(icon, bounds, self.style.getColor(.Text)) catch {};
             }
-            if (str.len > 0) self.drawControlText(str, rect, .Text, opts);
+            if (str.len > 0) self.drawControlText(str, bounds, .Text, opts);
 
             // Handle click
             return (state.focused and self.input.mouse_pressed.left);
@@ -873,8 +872,8 @@ pub fn Ui(comptime config: Config) type {
         /// Returns 'true' if checked state changed, 'false' otherwise
         pub fn checkbox(self: *Self, str: []const u8, checked: *bool) bool {
             const id = self.getId(str);
-            const rect = self.layoutNext();
-            const state = self.updateControl(id, rect, .{});
+            const bounds = self.layoutNext();
+            const state = self.updateControl(id, bounds, .{});
 
             // Handle click
             var changed = false;
@@ -884,8 +883,8 @@ pub fn Ui(comptime config: Config) type {
             }
 
             // Draw
-            const box_size = rect.sz.y;
-            const box = Rect.init(rect.pt.x, rect.pt.y, box_size, box_size);
+            const box_size = bounds.sz.y;
+            const box = rect(bounds.pt.x, bounds.pt.y, box_size, box_size);
             self.drawControlFrame(.Base, box, state, .{});
 
             if (checked.*) {
@@ -895,7 +894,7 @@ pub fn Ui(comptime config: Config) type {
 
             self.drawControlText(
                 str,
-                Rect.init(rect.pt.x + box_size, rect.pt.y, rect.sz.x - box_size, rect.sz.y),
+                rect(bounds.pt.x + box_size, bounds.pt.y, bounds.sz.x - box_size, bounds.sz.y),
                 .Text,
                 .{},
             );
@@ -916,14 +915,14 @@ pub fn Ui(comptime config: Config) type {
             self: *Self,
             buf: *TextBuffer,
             id: Id,
-            rect: Rect,
+            bounds: Rect,
             opts: OptionFlags,
         ) TextBoxState {
             var res = TextBoxState{};
 
             var text_opts = opts;
             text_opts.hold_focus = true;
-            const state = self.updateControl(id, rect, text_opts);
+            const state = self.updateControl(id, bounds, text_opts);
 
             if (state.focused) {
                 // Handle text input
@@ -944,30 +943,30 @@ pub fn Ui(comptime config: Config) type {
             }
 
             // Draw
-            self.drawControlFrame(.Base, rect, state, opts);
+            self.drawControlFrame(.Base, bounds, state, opts);
 
             if (state.focused) {
                 const font = self.style.font;
                 const size = font.measure(buf.text);
 
                 const pad = self.style.padding;
-                const ofx = std.math.min(pad, rect.sz.x - size.x - pad - 1);
-                const pos = Vec2{
-                    .x = rect.pt.x + std.math.min(ofx, self.style.padding),
-                    .y = rect.pt.y + @divTrunc(rect.sz.y - size.y, 2),
-                };
+                const ofx = std.math.min(pad, bounds.sz.x - size.x - pad - 1);
+                const pos = vec2(
+                    bounds.pt.x + std.math.min(ofx, self.style.padding),
+                    bounds.pt.y + @divTrunc(bounds.sz.y - size.y, 2),
+                );
 
                 // Active text and cursor
-                const clip = rect.intersect(self.peekClipRect());
+                const clip = bounds.intersect(self.peekClipRect());
                 const color = self.style.getColor(.Text);
-                const cursor = Rect.init(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
+                const cursor = rect(pos.x + size.x, pos.y, 1, size.y).intersect(clip);
                 if (cursor.sz.x > 0 and cursor.sz.y > 0) {
                     self.command_list.pushRect(cursor, color, .{}) catch {};
                 }
                 self.drawTextClipped(font, buf.text, pos, color, clip) catch {};
             } else {
                 // Inactive text
-                self.drawControlText(buf.text, rect, .Text, opts);
+                self.drawControlText(buf.text, bounds, .Text, opts);
             }
 
             return res;
@@ -1033,7 +1032,7 @@ pub fn Ui(comptime config: Config) type {
             // Thumb
             const perc = (v - low) / range;
             const width = self.style.thumb_size;
-            const thumb = Rect.init(
+            const thumb = rect(
                 base.pt.x + @floatToInt(i32, perc * @intToFloat(Real, base.sz.x - width)),
                 base.pt.y,
                 width,
@@ -1110,7 +1109,7 @@ pub fn Ui(comptime config: Config) type {
             self: *Self,
             comptime fmt: []const u8,
             value: *Real,
-            rect: Rect,
+            bounds: Rect,
             id: Id,
             // state: ControlState,
         ) bool {
@@ -1125,7 +1124,7 @@ pub fn Ui(comptime config: Config) type {
             }
 
             if (self.num_edit_id == id) {
-                const res = self.textboxRaw(&self.num_edit_buf, id, rect, .{});
+                const res = self.textboxRaw(&self.num_edit_buf, id, bounds, .{});
 
                 if (res.submit or self.curr_focus != id) {
                     self.num_edit_id = 0;
@@ -1210,7 +1209,7 @@ pub fn Ui(comptime config: Config) type {
 
             if (self.drawIcon(
                 if (expanded) .Expanded else .Collapsed,
-                Rect.init(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
+                rect(r.pt.x, r.pt.y, r.sz.y, r.sz.y),
                 self.style.getColor(.Text),
             )) {
                 const delta_x = r.sz.y - self.style.padding;
@@ -1250,7 +1249,7 @@ pub fn Ui(comptime config: Config) type {
             if (opts.title) {
                 const title_rect = Rect{
                     .pt = cnt.rect.pt,
-                    .sz = Vec2{ .x = cnt.rect.sz.x, .y = title_h },
+                    .sz = .{ .x = cnt.rect.sz.x, .y = title_h },
                 };
 
                 self.drawFrame(title_rect, .TitleBg);
@@ -1264,18 +1263,18 @@ pub fn Ui(comptime config: Config) type {
 
                 // Close button
                 if (opts.close_button) {
-                    const rect = Rect.init(
+                    const bounds = rect(
                         title_rect.pt.x + title_rect.sz.x - title_h,
                         title_rect.pt.y,
                         title_h,
                         title_h,
                     );
-                    const state = self.updateControl(self.getId("!close"), rect, opts);
+                    const state = self.updateControl(self.getId("!close"), bounds, opts);
                     if (state.focused and self.input.mouse_pressed.left) {
                         cnt.open = false;
                     }
                     // TODO (Matteo): Is not drawing on error the right choice?
-                    self.drawIcon(.Close, rect, self.style.getColor(.TitleText)) catch {};
+                    self.drawIcon(.Close, bounds, self.style.getColor(.TitleText)) catch {};
                 }
 
                 // Remove title from body
@@ -1287,13 +1286,13 @@ pub fn Ui(comptime config: Config) type {
 
             // Do resize handle
             if (opts.resize) {
-                const rect = Rect.init(
+                const bounds = rect(
                     cnt.rect.pt.x + cnt.rect.sz.x - title_h,
                     cnt.rect.pt.y + cnt.rect.sz.y - title_h,
                     title_h,
                     title_h,
                 );
-                const state = self.updateControl(self.getId("!resize"), rect, opts);
+                const state = self.updateControl(self.getId("!resize"), bounds, opts);
                 if (state.focused and self.input.mouse_down.left) {
                     const next_size = cnt.rect.sz.add(self.mouse_delta);
                     cnt.rect.sz.x = std.math.max(96, next_size.x);
@@ -1327,7 +1326,7 @@ pub fn Ui(comptime config: Config) type {
             self.next_hover_root = cnt;
             self.hover_root = self.next_hover_root;
             // position at mouse cursor, open and bring-to-front
-            cnt.rect = Rect{ .pt = self.input.mouse_pos, .sz = Vec2{ .x = 1, .y = 1 } };
+            cnt.rect = Rect{ .pt = self.input.mouse_pos, .sz = vec2(1, 1) };
             cnt.open = true;
             self.bringToFront(cnt);
         }
@@ -1401,7 +1400,7 @@ pub fn Ui(comptime config: Config) type {
         pub fn drawControlFrame(
             self: *Self,
             color: ColorId,
-            rect: Rect,
+            frame: Rect,
             state: ControlState,
             opts: OptionFlags,
         ) void {
@@ -1414,29 +1413,29 @@ pub fn Ui(comptime config: Config) type {
                     inline else => 0,
                 };
 
-                self.drawFrame(rect, @intToEnum(ColorId, @enumToInt(color) + offset));
+                self.drawFrame(frame, @intToEnum(ColorId, @enumToInt(color) + offset));
             }
         }
 
         pub fn drawControlText(
             self: *Self,
             str: []const u8,
-            rect: Rect,
+            bounds: Rect,
             color: ColorId,
             opts: OptionFlags,
         ) void {
             const font = self.style.font;
             const size = font.measure(str);
             var pos = Vec2{
-                .y = rect.pt.y + @divTrunc(rect.sz.y - size.y, 2),
+                .y = bounds.pt.y + @divTrunc(bounds.sz.y - size.y, 2),
             };
 
             if (opts.align_center) {
-                pos.x = rect.pt.x + @divTrunc(rect.sz.x - size.x, 2);
+                pos.x = bounds.pt.x + @divTrunc(bounds.sz.x - size.x, 2);
             } else if (opts.align_right) {
-                pos.x = rect.pt.x + rect.sz.x - size.x - self.style.padding;
+                pos.x = bounds.pt.x + bounds.sz.x - size.x - self.style.padding;
             } else {
-                pos.x = rect.pt.x + self.style.padding;
+                pos.x = bounds.pt.x + self.style.padding;
             }
 
             // TODO (Matteo): Is not drawing on error the right choice?
@@ -1445,31 +1444,31 @@ pub fn Ui(comptime config: Config) type {
                 str,
                 pos,
                 self.style.getColor(color),
-                rect.intersect(self.peekClipRect()),
+                bounds.intersect(self.peekClipRect()),
             ) catch {};
         }
 
-        inline fn drawFrame(self: *Self, rect: Rect, color_id: ColorId) void {
+        inline fn drawFrame(self: *Self, frame: Rect, color_id: ColorId) void {
             // NOTE (Matteo): Helper to abbreviate the calls involving the function
             // pointer - ugly?
             // TODO (Matteo): Is not drawing on error the right choice?
-            self.draw_frame(self, rect, color_id) catch {};
+            self.draw_frame(self, frame, color_id) catch {};
         }
 
         fn drawDefaultFrame(self: *Self, frame: Rect, color_id: ColorId) DrawError!void {
-            const rect = self.peekClipRect().intersect(frame);
-            if (rect.isEmpty()) return;
+            const clipped = self.peekClipRect().intersect(frame);
+            if (clipped.isEmpty()) return;
 
-            try self.command_list.pushRect(rect, self.style.getColor(color_id), .{});
+            try self.command_list.pushRect(clipped, self.style.getColor(color_id), .{});
 
             switch (color_id) {
                 .ScrollBase, .ScrollThumb, .TitleBg => {},
                 else => {
-                    const bound = rect.expand(1);
+                    const bound = clipped.expand(1);
 
                     const shadow = self.style.getColor(.BorderShadow);
                     if (shadow.a != 0) {
-                        try self.drawBox(bound.move(Vec2{ .x = 1, .y = 1 }), shadow);
+                        try self.drawBox(bound.move(vec2(1, 1)), shadow);
                     }
 
                     const border = self.style.getColor(.Border);
@@ -1485,13 +1484,13 @@ pub fn Ui(comptime config: Config) type {
         // list memory is exhausted. We could simply ignore and not draw but propagating
         // the error is useful to inform higher level decisions
 
-        pub fn drawRect(self: *Self, rect: Rect, color: Color) DrawError!void {
-            const clipped = self.peekClipRect().intersect(rect);
+        pub fn drawRect(self: *Self, r: Rect, color: Color) DrawError!void {
+            const clipped = self.peekClipRect().intersect(r);
             if (!clipped.isEmpty()) try self.command_list.pushRect(clipped, color, .{});
         }
 
-        pub fn drawBox(self: *Self, rect: Rect, color: Color) DrawError!void {
-            const clipped = self.peekClipRect().intersect(rect);
+        pub fn drawBox(self: *Self, box: Rect, color: Color) DrawError!void {
+            const clipped = self.peekClipRect().intersect(box);
             if (!clipped.isEmpty()) try self.command_list.pushRect(
                 clipped,
                 color,
@@ -1509,19 +1508,19 @@ pub fn Ui(comptime config: Config) type {
             return drawTextClipped(self, font, str, pos, color, self.peekClipRect());
         }
 
-        pub fn drawIcon(self: *Self, id: Icon, rect: Rect, color: Color) DrawError!void {
+        pub fn drawIcon(self: *Self, id: Icon, box: Rect, color: Color) DrawError!void {
             const clip = self.peekClipRect();
 
-            switch (rect.checkClip(clip)) {
+            switch (box.checkClip(clip)) {
                 .All => return,
                 .Part => {
                     try self.command_list.pushClip(clip);
                     defer self.command_list.pushClip(self.bounds) catch {};
 
-                    try self.command_list.pushIcon(id, rect, color);
+                    try self.command_list.pushIcon(id, box, color);
                 },
                 else => {
-                    try self.command_list.pushIcon(id, rect, color);
+                    try self.command_list.pushIcon(id, box, color);
                 },
             }
         }
@@ -1534,9 +1533,9 @@ pub fn Ui(comptime config: Config) type {
             color: Color,
             clip: Rect,
         ) DrawError!void {
-            const rect = Rect{ .pt = pos, .sz = font.measure(str) };
+            const bounds = Rect{ .pt = pos, .sz = font.measure(str) };
 
-            switch (rect.checkClip(clip)) {
+            switch (bounds.checkClip(clip)) {
                 .All => return,
                 .Part => {
                     try self.command_list.pushClip(clip);
@@ -1561,15 +1560,21 @@ pub const Vec2 = extern struct {
     y: i32 = 0,
 
     pub inline fn add(l: Vec2, r: Vec2) Vec2 {
-        return Vec2{ .x = l.x + r.x, .y = l.y + r.y };
+        return .{
+            .x = l.x + r.x,
+            .y = l.y + r.y,
+        };
     }
 
     pub inline fn sub(l: Vec2, r: Vec2) Vec2 {
-        return Vec2{ .x = l.x - r.x, .y = l.y - r.y };
+        return .{
+            .x = l.x - r.x,
+            .y = l.y - r.y,
+        };
     }
 
     pub inline fn negate(v: Vec2) Vec2 {
-        return Vec2{ .x = -v.x, .y = -v.y };
+        return .{ .x = -v.x, .y = -v.y };
     }
 
     pub inline fn eq(l: Vec2, r: Vec2) bool {
@@ -1581,48 +1586,41 @@ pub const Rect = extern struct {
     pt: Vec2 = .{},
     sz: Vec2 = .{},
 
-    const unclipped = init(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+    const unclipped = rect(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32) Rect {
-        return Rect{
-            .pt = Vec2{ .x = x, .y = y },
-            .sz = Vec2{ .x = w, .y = h },
+    pub inline fn isEmpty(self: Rect) bool {
+        return (self.sz.x <= 0 or self.sz.y <= 0);
+    }
+
+    pub fn expand(self: Rect, n: i32) Rect {
+        return .{
+            .pt = vec2(self.pt.x - n, self.pt.y - n),
+            .sz = vec2(self.sz.x + 2 * n, self.sz.y + 2 * n),
         };
     }
 
-    pub inline fn isEmpty(rect: Rect) bool {
-        return (rect.sz.x <= 0 or rect.sz.y <= 0);
-    }
-
-    pub fn expand(rect: Rect, n: i32) Rect {
-        return Rect{
-            .pt = Vec2{ .x = rect.pt.x - n, .y = rect.pt.y - n },
-            .sz = Vec2{ .x = rect.sz.x + 2 * n, .y = rect.sz.y + 2 * n },
-        };
-    }
-
-    pub fn move(rect: Rect, v: Vec2) Rect {
-        return Rect{ .pt = rect.pt.add(v), .sz = rect.sz };
+    pub fn move(self: Rect, v: Vec2) Rect {
+        return .{ .pt = self.pt.add(v), .sz = self.sz };
     }
 
     pub fn intersect(ls: Rect, rs: Rect) Rect {
-        const min = Vec2{
-            .x = std.math.max(ls.pt.x, rs.pt.x),
-            .y = std.math.max(ls.pt.y, rs.pt.y),
-        };
+        const min = vec2(
+            std.math.max(ls.pt.x, rs.pt.x),
+            std.math.max(ls.pt.y, rs.pt.y),
+        );
 
-        const max = Vec2{
-            .x = std.math.max(min.x, std.math.min(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x)),
-            .y = std.math.max(min.y, std.math.min(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y)),
-        };
+        const max = vec2(
+            std.math.max(min.x, std.math.min(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x)),
+            std.math.max(min.y, std.math.min(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y)),
+        );
 
-        return Rect{ .pt = min, .sz = max.sub(min) };
+        return .{ .pt = min, .sz = max.sub(min) };
     }
 
-    pub fn overlaps(rect: Rect, p: Vec2) bool {
-        const max = rect.pt.add(rect.sz);
-        return p.x >= rect.pt.x and p.x <= max.x and
-            p.y >= rect.pt.y and p.y <= max.y;
+    pub fn overlaps(self: Rect, p: Vec2) bool {
+        const max = self.pt.add(self.sz);
+        return p.x >= self.pt.x and p.x <= max.x and
+            p.y >= self.pt.y and p.y <= max.y;
     }
 
     pub fn checkClip(r: Rect, c: Rect) Clip {
@@ -1653,29 +1651,37 @@ pub const Ellipse = extern struct {
     center: Vec2,
     radii: Vec2,
 
-    pub inline fn circle(center: Vec2, radius: i32) Ellipse {
-        return .{ .center = center, .radii = .{ .x = radius, .y = radius } };
-    }
-
     pub inline fn isCircle(ell: Ellipse) bool {
         return (ell.radii.x == ell.radii.y);
     }
 };
+
+pub inline fn vec2(x: i32, y: i32) Vec2 {
+    return .{ .x = x, .y = y };
+}
+
+pub inline fn rect(x: i32, y: i32, w: i32, h: i32) Rect {
+    return .{ .pt = vec2(x, y), .sz = vec2(w, h) };
+}
+
+pub inline fn circle(center: Vec2, radius: i32) Ellipse {
+    return .{ .center = center, .radii = vec2(radius, radius) };
+}
 
 test "Primitives" {
     const expect = std.testing.expect;
 
     var c: Rect = undefined;
 
-    const a = Rect.init(0, 0, 2, 3);
+    const a = rect(0, 0, 2, 3);
     c = a.intersect(Rect.unclipped);
     try expect(a.pt.eq(c.pt));
     try expect(a.sz.eq(c.sz));
 
-    const b = Rect.init(1, 1, 3, 3);
+    const b = rect(1, 1, 3, 3);
     c = a.intersect(b);
     try expect(c.pt.eq(c.pt));
-    try expect(c.sz.eq(.{ .x = 1, .y = 2 }));
+    try expect(c.sz.eq(vec2(1, 2)));
 }
 
 //=====================//
