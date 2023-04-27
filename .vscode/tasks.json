@@ -42,6 +42,24 @@
             ],
             "group": {
                 "kind": "build",
+            },
+            "problemMatcher": "$zig",
+            "presentation": {
+                "reveal": "silent",
+                "revealProblems": "onProblem",
+                "close": true
+            }
+        },
+        {
+            "label": "Run Zig demo (WGL)",
+            "type": "shell",
+            "command": "zig",
+            "args": [
+                "build",
+                "wgl",
+            ],
+            "group": {
+                "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": "$zig",

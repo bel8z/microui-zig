@@ -145,6 +145,14 @@ fn wndProc(
             win32.user32.PostQuitMessage(0);
         },
         win32.user32.WM_PAINT => {
+            // NOTE (Matteo): We need to call this not only for obtaining the DC
+            // required for swapping buffers, but also to notify the system that
+            // we performed the painting so another WM_PAINT message would not
+            // be sent until the window is invalidated again
+            var ps: PAINTSTRUCT = undefined;
+            const dc = BeginPaint(win, &ps) orelse unreachable;
+            defer _ = EndPaint(win, &ps);
+
             // process frame
             {
                 const size = getClientSize(win);
@@ -171,69 +179,58 @@ fn wndProc(
             }
             renderer.flush();
 
-            const dc = win32.user32.getDC(win) catch unreachable;
-            defer _ = win32.user32.releaseDC(win, dc);
             wgl.swapBuffers(dc) catch {};
         },
         win32.user32.WM_MOUSEMOVE => {
-            input.mouseMove(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-            );
+            input.mouseMove(getMousePos(lparam));
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_LBUTTONDOWN => {
-            input.mouseDown(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .left = true },
-            );
+            input.mouseDown(getMousePos(lparam), .{ .left = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_MBUTTONDOWN => {
-            input.mouseDown(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .middle = true },
-            );
+            input.mouseDown(getMousePos(lparam), .{ .middle = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_RBUTTONDOWN => {
-            input.mouseDown(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .right = true },
-            );
+            input.mouseDown(getMousePos(lparam), .{ .right = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_LBUTTONUP => {
-            input.mouseUp(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .left = true },
-            );
+            input.mouseUp(getMousePos(lparam), .{ .left = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_MBUTTONUP => {
-            input.mouseUp(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .middle = true },
-            );
+            input.mouseUp(getMousePos(lparam), .{ .middle = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         win32.user32.WM_RBUTTONUP => {
-            input.mouseUp(
-                @intCast(i32, 0xFFFF & lparam),
-                @intCast(i32, 0xFFFF & (lparam >> 16)),
-                .{ .right = true },
-            );
+            input.mouseUp(getMousePos(lparam), .{ .right = true });
             _ = InvalidateRect(win, null, win32.TRUE);
         },
         else => return win32.user32.defWindowProcW(win, msg, wparam, lparam),
     }
 
     return 0;
+}
+
+fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
+    return .{
+        .r = @floatToInt(u8, std.math.clamp(r * 255, 0, 255)),
+        .g = @floatToInt(u8, std.math.clamp(g * 255, 0, 255)),
+        .b = @floatToInt(u8, std.math.clamp(b * 255, 0, 255)),
+        .a = @floatToInt(u8, std.math.clamp(a * 255, 0, 255)),
+    };
+}
+
+// Windows specific stuff
+
+fn getMousePos(lparam: win32.LPARAM) mu.Vec2 {
+    return .{
+        .x = @intCast(i32, 0xFFFF & lparam),
+        .y = @intCast(i32, 0xFFFF & (lparam >> 16)),
+    };
 }
 
 fn getClientSize(win: win32.HWND) mu.Vec2 {
@@ -246,6 +243,25 @@ fn getDefaultCursor() ?win32.HCURSOR {
     const name = @intToPtr(win32.LPCWSTR, 32512);
     return LoadCursorW(null, name);
 }
+
+const PAINTSTRUCT = extern struct {
+    hdc: win32.HDC,
+    fErase: win32.BOOL,
+    rcPaint: win32.RECT,
+    fRestore: win32.BOOL,
+    fIncUpdate: win32.BOOL,
+    rgbReserved: [32]u8,
+};
+
+extern "user32" fn BeginPaint(
+    hwnd: win32.HWND,
+    paint: *PAINTSTRUCT,
+) callconv(win32.WINAPI) ?win32.HDC;
+
+extern "user32" fn EndPaint(
+    hwnd: win32.HWND,
+    paint: *const PAINTSTRUCT,
+) callconv(win32.WINAPI) win32.BOOL;
 
 extern "user32" fn LoadCursorW(
     hinst: ?win32.HINSTANCE,
@@ -263,17 +279,9 @@ extern fn GetClientRect(
     out_rect: *win32.RECT,
 ) callconv(WINAPI) win32.BOOL;
 
-fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
-    return .{
-        .r = @floatToInt(u8, std.math.clamp(r * 255, 0, 255)),
-        .g = @floatToInt(u8, std.math.clamp(g * 255, 0, 255)),
-        .b = @floatToInt(u8, std.math.clamp(b * 255, 0, 255)),
-        .a = @floatToInt(u8, std.math.clamp(a * 255, 0, 255)),
-    };
-}
+// Keep WGL specific stuff in its own namespace
 
 const wgl = struct {
-
     // See https://www.khronos.org/registry/OpenGL/extensions/ARB/WGL_ARB_create_context.txt for all
     // values
     const WGL_CONTEXT_MAJOR_VERSION_ARB = 0x2091;

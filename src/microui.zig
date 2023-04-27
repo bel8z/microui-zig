@@ -1756,28 +1756,28 @@ pub const Input = struct {
         self.text_buf.clear();
     }
 
-    pub inline fn mouseMove(self: *Input, x: i32, y: i32) void {
-        self.mouse_pos = .{ .x = x, .y = y };
+    pub inline fn mouseMove(self: *Input, pos: Vec2) void {
+        self.mouse_pos = pos;
     }
 
-    pub fn mouseDown(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+    pub fn mouseDown(self: *Input, pos: Vec2, btn: MouseButtons) void {
         if (btn.any()) {
-            self.mouseMove(x, y);
+            self.mouseMove(pos);
             self.mouse_down = self.mouse_down.unionWith(btn);
             self.mouse_pressed = self.mouse_pressed.unionWith(btn);
         }
     }
 
-    pub fn mouseUp(self: *Input, x: i32, y: i32, btn: MouseButtons) void {
+    pub fn mouseUp(self: *Input, pos: Vec2, btn: MouseButtons) void {
         if (btn.any()) {
-            self.mouseMove(x, y);
+            self.mouseMove(pos);
             self.mouse_down = self.mouse_down.exceptWith(btn);
         }
     }
 
-    pub inline fn scroll(self: *Input, x: i32, y: i32) void {
-        self.scroll_delta.x += x;
-        self.scroll_delta.y += y;
+    pub inline fn scroll(self: *Input, delta: Vec2) void {
+        self.scroll_delta.x += delta.x;
+        self.scroll_delta.y += delta.y;
     }
 
     pub fn keyDown(self: *Input, key: Keys) void {

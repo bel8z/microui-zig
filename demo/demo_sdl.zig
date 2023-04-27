@@ -74,18 +74,18 @@ pub fn main() !void {
             switch (e.type) {
                 c.SDL_QUIT => return,
 
-                c.SDL_MOUSEMOTION => input.mouseMove(e.motion.x, e.motion.y),
-                c.SDL_MOUSEWHEEL => input.scroll(0, e.wheel.y * -30),
+                c.SDL_MOUSEMOTION => input.mouseMove(.{ .x = e.motion.x, .y = e.motion.y }),
+                c.SDL_MOUSEWHEEL => input.scroll(.{ .x = 0, .y = e.wheel.y * -30 }),
                 c.SDL_TEXTINPUT => input.textZ(@ptrCast([*:0]const u8, &e.text.text)),
 
                 c.SDL_MOUSEBUTTONDOWN => {
                     const b = button_map[e.button.button & 0xff];
-                    input.mouseDown(e.button.x, e.button.y, b);
+                    input.mouseDown(.{ .x = e.button.x, .y = e.button.y }, b);
                 },
 
                 c.SDL_MOUSEBUTTONUP => {
                     const b = button_map[e.button.button & 0xff];
-                    input.mouseUp(e.button.x, e.button.y, b);
+                    input.mouseUp(.{ .x = e.button.x, .y = e.button.y }, b);
                 },
 
                 c.SDL_KEYDOWN => {
