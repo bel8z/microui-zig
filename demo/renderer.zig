@@ -83,8 +83,8 @@ pub fn flush(self: *Renderer) void {
     c.glLoadIdentity();
     c.glOrtho(
         0.0,
-        @intToFloat(f64, self.width),
-        @intToFloat(f64, self.height),
+        @as(f64, @floatFromInt(self.width)),
+        @as(f64, @floatFromInt(self.height)),
         0.0,
         -1.0,
         1.0,
@@ -98,7 +98,7 @@ pub fn flush(self: *Renderer) void {
     c.glColorPointer(4, c.GL_UNSIGNED_BYTE, 0, &self.color_buf);
     c.glDrawElements(
         c.GL_TRIANGLES,
-        @intCast(c_int, self.buf_idx * 6),
+        @as(c_int, @intCast(self.buf_idx * 6)),
         c.GL_UNSIGNED_INT,
         &self.index_buf,
     );
@@ -185,10 +185,10 @@ pub fn clear(self: *Renderer, color: mu.Color) void {
 
     const f = @as(f32, 1) / 255;
     c.glClearColor(
-        @intToFloat(f32, color.r) * f,
-        @intToFloat(f32, color.g) * f,
-        @intToFloat(f32, color.b) * f,
-        @intToFloat(f32, color.a) * f,
+        @as(f32, @floatFromInt(color.r)) * f,
+        @as(f32, @floatFromInt(color.g)) * f,
+        @as(f32, @floatFromInt(color.b)) * f,
+        @as(f32, @floatFromInt(color.a)) * f,
     );
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 }
@@ -204,12 +204,12 @@ fn pushQuad(self: *Renderer, dst: mu.Rect, src: mu.Rect, color: mu.Color) void {
     self.buf_idx += 1;
 
     // update texture buffer
-    const atlas_w = @intToFloat(f32, atlas.width);
-    const atlas_h = @intToFloat(f32, atlas.height);
-    const x = @intToFloat(f32, src.pt.x) / atlas_w;
-    const y = @intToFloat(f32, src.pt.y) / atlas_h;
-    const w = @intToFloat(f32, src.sz.x) / atlas_w;
-    const h = @intToFloat(f32, src.sz.y) / atlas_h;
+    const atlas_w = @as(f32, @floatFromInt(atlas.width));
+    const atlas_h = @as(f32, @floatFromInt(atlas.height));
+    const x = @as(f32, @floatFromInt(src.pt.x)) / atlas_w;
+    const y = @as(f32, @floatFromInt(src.pt.y)) / atlas_h;
+    const w = @as(f32, @floatFromInt(src.sz.x)) / atlas_w;
+    const h = @as(f32, @floatFromInt(src.sz.y)) / atlas_h;
     self.tex_buf[texvert_idx + 0] = x;
     self.tex_buf[texvert_idx + 1] = y;
     self.tex_buf[texvert_idx + 2] = x + w;

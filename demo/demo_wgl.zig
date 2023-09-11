@@ -217,10 +217,10 @@ fn wndProc(
 
 fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
     return .{
-        .r = @floatToInt(u8, std.math.clamp(r * 255, 0, 255)),
-        .g = @floatToInt(u8, std.math.clamp(g * 255, 0, 255)),
-        .b = @floatToInt(u8, std.math.clamp(b * 255, 0, 255)),
-        .a = @floatToInt(u8, std.math.clamp(a * 255, 0, 255)),
+        .r = @as(u8, @intFromFloat(std.math.clamp(r * 255, 0, 255))),
+        .g = @as(u8, @intFromFloat(std.math.clamp(g * 255, 0, 255))),
+        .b = @as(u8, @intFromFloat(std.math.clamp(b * 255, 0, 255))),
+        .a = @as(u8, @intFromFloat(std.math.clamp(a * 255, 0, 255))),
     };
 }
 
@@ -228,8 +228,8 @@ fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
 
 fn getMousePos(lparam: win32.LPARAM) mu.Vec2 {
     return .{
-        .x = @intCast(i32, 0xFFFF & lparam),
-        .y = @intCast(i32, 0xFFFF & (lparam >> 16)),
+        .x = @as(i32, @intCast(0xFFFF & lparam)),
+        .y = @as(i32, @intCast(0xFFFF & (lparam >> 16))),
     };
 }
 
@@ -240,7 +240,7 @@ fn getClientSize(win: win32.HWND) mu.Vec2 {
 }
 
 fn getDefaultCursor() ?win32.HCURSOR {
-    const name = @intToPtr(win32.LPCWSTR, 32512);
+    const name = @as(win32.LPCWSTR, @ptrFromInt(32512));
     return LoadCursorW(null, name);
 }
 
@@ -464,17 +464,17 @@ const wgl = struct {
     }
 
     fn getCurrentInstance() win32.HINSTANCE {
-        return @ptrCast(
+        return @as(
             win32.HINSTANCE,
-            win32.kernel32.GetModuleHandleW(null) orelse unreachable,
+            @ptrCast(win32.kernel32.GetModuleHandleW(null) orelse unreachable),
         );
     }
 
     fn loadProc(comptime T: type, comptime name: [*:0]const u8) ?T {
-        if (wglGetProcAddress(name)) |proc| return @ptrCast(T, proc);
+        if (wglGetProcAddress(name)) |proc| return @as(T, @ptrCast(proc));
 
         if (win32.kernel32.GetModuleHandleW(L("opengl32"))) |gl32| {
-            return @ptrCast(T, win32.kernel32.GetProcAddress(gl32, name));
+            return @as(T, @ptrCast(win32.kernel32.GetProcAddress(gl32, name)));
         }
 
         return null;

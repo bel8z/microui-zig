@@ -34,8 +34,8 @@ fn testWindow(ui: anytype, bg: *mu.Color) !void {
         defer ui.endWindow();
 
         var win = ui.getCurrentContainer();
-        win.*.rect.sz.x = std.math.max(win.*.rect.sz.x, 240);
-        win.*.rect.sz.y = std.math.max(win.*.rect.sz.y, 300);
+        win.*.rect.sz.x = @max(win.*.rect.sz.x, 240);
+        win.*.rect.sz.y = @max(win.*.rect.sz.y, 300);
 
         // window info */
         if (ui.header("Window Info", .{})) {
@@ -227,7 +227,7 @@ fn styleWindow(ui: anytype) void {
 
         ui.layoutRow(.{-1}, 0);
         if (ui.header("Colors", .{ .expanded = true })) {
-            const sw = @floatToInt(i32, @intToFloat(f64, width) * 0.14);
+            const sw = @as(i32, @intFromFloat(@as(f64, @floatFromInt(width)) * 0.14));
             ui.layoutRow(.{ 80, sw, sw, sw, sw, -1 }, 0);
 
             const fields = @typeInfo(mu.ColorId).Enum.fields;
@@ -251,7 +251,7 @@ fn sliderU8(ui: anytype, value: *u8) bool {
 
 // TODO (Matteo): Use type deduction? Move to microui proper?
 fn sliderInt(comptime T: type, ui: anytype, value: *T, min: T, max: T) bool {
-    var tmp = @intToFloat(f32, value.*);
+    var tmp = @as(f32, @floatFromInt(value.*));
 
     // NOTE (Matteo): This is required to have an unique id based on the value
     // pointer, otherwise it would be generated using the temporary local pointer
@@ -260,22 +260,22 @@ fn sliderInt(comptime T: type, ui: anytype, value: *T, min: T, max: T) bool {
 
     const res = ui.sliderEx(
         &tmp,
-        @intToFloat(f32, min),
-        @intToFloat(f32, max),
+        @as(f32, @floatFromInt(min)),
+        @as(f32, @floatFromInt(max)),
         0,
         "{d:.0}",
         .{ .align_center = true },
     );
-    value.* = @floatToInt(T, tmp);
+    value.* = @as(T, @intFromFloat(tmp));
 
     return res;
 }
 
 fn rgba(r: f32, g: f32, b: f32, a: f32) mu.Color {
     return .{
-        .r = @floatToInt(u8, std.math.clamp(r * 255, 0, 255)),
-        .g = @floatToInt(u8, std.math.clamp(g * 255, 0, 255)),
-        .b = @floatToInt(u8, std.math.clamp(b * 255, 0, 255)),
-        .a = @floatToInt(u8, std.math.clamp(a * 255, 0, 255)),
+        .r = @as(u8, @intFromFloat(std.math.clamp(r * 255, 0, 255))),
+        .g = @as(u8, @intFromFloat(std.math.clamp(g * 255, 0, 255))),
+        .b = @as(u8, @intFromFloat(std.math.clamp(b * 255, 0, 255))),
+        .a = @as(u8, @intFromFloat(std.math.clamp(a * 255, 0, 255))),
     };
 }

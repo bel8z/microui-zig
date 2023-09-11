@@ -128,12 +128,12 @@ pub const Style = struct {
 
     /// Helper to access the color value by id without casting the enum explicitly
     pub inline fn getColor(self: *const Style, id: ColorId) Color {
-        return self.colors[@enumToInt(id)];
+        return self.colors[@intFromEnum(id)];
     }
 
     /// Helper to set the color value by id without casting the enum explicitly
     pub inline fn setColor(self: *Style, id: ColorId, color: Color) void {
-        self.colors[@enumToInt(id)] = color;
+        self.colors[@intFromEnum(id)] = color;
     }
 };
 
@@ -266,7 +266,7 @@ pub fn Ui(comptime config: Config) type {
 
         pub fn getInput(self: *Self) Input {
             var buf = self.scratch_buf[0..config.input_buf_size];
-            std.mem.set(u8, buf, 0);
+            @memset(buf, 0);
             return Input.init(buf);
         }
 
@@ -333,7 +333,7 @@ pub fn Ui(comptime config: Config) type {
             };
 
             const roots = self.root_list.slice();
-            std.sort.sort(*Container, roots, {}, compare.lessThan);
+            std.sort.block(*Container, roots, {}, compare.lessThan);
 
             // TODO (Matteo): Review
             // Set root container jump commands
@@ -458,7 +458,7 @@ pub fn Ui(comptime config: Config) type {
                 // Draw
                 self.drawFrame(base, .ScrollBase);
                 var thumb = base;
-                thumb.sz.y = std.math.max(self.style.thumb_size, @divTrunc(base.sz.y * cnt.body.sz.y, cs.y));
+                thumb.sz.y = @max(self.style.thumb_size, @divTrunc(base.sz.y * cnt.body.sz.y, cs.y));
                 thumb.pt.y += @divTrunc(cnt.scroll.y * (base.sz.y - thumb.sz.y), max_scroll.y);
                 self.drawFrame(thumb, .ScrollThumb);
             } else {
@@ -490,7 +490,7 @@ pub fn Ui(comptime config: Config) type {
                 // Draw
                 self.drawFrame(base, .ScrollBase);
                 var thumb = base;
-                thumb.sz.x = std.math.max(self.style.thumb_size, @divTrunc(base.sz.x * cnt.body.sz.x, cs.x));
+                thumb.sz.x = @max(self.style.thumb_size, @divTrunc(base.sz.x * cnt.body.sz.x, cs.x));
                 thumb.pt.x += @divTrunc(cnt.scroll.x * (base.sz.x - thumb.sz.x), max_scroll.x);
                 self.drawFrame(thumb, .ScrollThumb);
             } else {
@@ -553,10 +553,10 @@ pub fn Ui(comptime config: Config) type {
             // Inherit position/next_row/max from child layout if they are greater
             const dpos = src.body.pt.sub(dst.body.pt);
 
-            dst.position.x = std.math.max(dst.position.x, src.position.x + dpos.x);
-            dst.next_row = std.math.max(dst.next_row, src.next_row + dpos.y);
-            dst.max.x = std.math.max(dst.max.x, src.max.x);
-            dst.max.y = std.math.max(dst.max.y, src.max.y);
+            dst.position.x = @max(dst.position.x, src.position.x + dpos.x);
+            dst.next_row = @max(dst.next_row, src.next_row + dpos.y);
+            dst.max.x = @max(dst.max.x, src.max.x);
+            dst.max.y = @max(dst.max.y, src.max.y);
         }
 
         pub fn layoutRow(self: *Self, widths: anytype, height: i32) void {
@@ -630,7 +630,7 @@ pub fn Ui(comptime config: Config) type {
             if (next_type != .Absolute) {
                 // Update position
                 layout.position.x += res.sz.x + style.spacing;
-                layout.next_row = std.math.max(
+                layout.next_row = @max(
                     layout.next_row,
                     res.pt.y + res.sz.y + style.spacing,
                 );
@@ -639,8 +639,8 @@ pub fn Ui(comptime config: Config) type {
                 res.pt = res.pt.add(layout.body.pt);
 
                 // Update max position
-                layout.max.x = std.math.max(layout.max.x, res.pt.x + res.sz.x);
-                layout.max.y = std.math.max(layout.max.y, res.pt.y + res.sz.y);
+                layout.max.x = @max(layout.max.x, res.pt.x + res.sz.x);
+                layout.max.y = @max(layout.max.y, res.pt.y + res.sz.y);
             }
 
             self.last_rect = res;
@@ -950,9 +950,9 @@ pub fn Ui(comptime config: Config) type {
                 const size = font.measure(buf.text);
 
                 const pad = self.style.padding;
-                const ofx = std.math.min(pad, bounds.sz.x - size.x - pad - 1);
+                const ofx = @min(pad, bounds.sz.x - size.x - pad - 1);
                 const pos = vec2(
-                    bounds.pt.x + std.math.min(ofx, self.style.padding),
+                    bounds.pt.x + @min(ofx, self.style.padding),
                     bounds.pt.y + @divTrunc(bounds.sz.y - size.y, 2),
                 );
 
@@ -1016,8 +1016,8 @@ pub fn Ui(comptime config: Config) type {
                 self.input.mouse_pressed.left);
 
             if (state.focused and clicked) {
-                const delta = @intToFloat(Real, self.input.mouse_pos.x - base.pt.x);
-                v = low + delta * range / @intToFloat(Real, base.sz.x);
+                const delta = @as(Real, @floatFromInt(self.input.mouse_pos.x - base.pt.x));
+                v = low + delta * range / @as(Real, @floatFromInt(base.sz.x));
                 // TODO (Matteo): Why was division-then-multiplication by step needed
                 // in the first place?
                 if (step != 0) v = step * ((v + 0.5 * step) / step);
@@ -1033,7 +1033,7 @@ pub fn Ui(comptime config: Config) type {
             const perc = (v - low) / range;
             const width = self.style.thumb_size;
             const thumb = rect(
-                base.pt.x + @floatToInt(i32, perc * @intToFloat(Real, base.sz.x - width)),
+                base.pt.x + @as(i32, @intFromFloat(perc * @as(Real, @floatFromInt(base.sz.x - width)))),
                 base.pt.y,
                 width,
                 base.sz.y,
@@ -1295,8 +1295,8 @@ pub fn Ui(comptime config: Config) type {
                 const state = self.updateControl(self.getId("!resize"), bounds, opts);
                 if (state.focused and self.input.mouse_down.left) {
                     const next_size = cnt.rect.sz.add(self.mouse_delta);
-                    cnt.rect.sz.x = std.math.max(96, next_size.x);
-                    cnt.rect.sz.y = std.math.max(64, next_size.y);
+                    cnt.rect.sz.x = @max(96, next_size.x);
+                    cnt.rect.sz.y = @max(64, next_size.y);
                 }
             }
 
@@ -1413,7 +1413,7 @@ pub fn Ui(comptime config: Config) type {
                     inline else => 0,
                 };
 
-                self.drawFrame(frame, @intToEnum(ColorId, @enumToInt(color) + offset));
+                self.drawFrame(frame, @as(ColorId, @enumFromInt(@intFromEnum(color) + offset)));
             }
         }
 
@@ -1605,13 +1605,13 @@ pub const Rect = extern struct {
 
     pub fn intersect(ls: Rect, rs: Rect) Rect {
         const min = vec2(
-            std.math.max(ls.pt.x, rs.pt.x),
-            std.math.max(ls.pt.y, rs.pt.y),
+            @max(ls.pt.x, rs.pt.x),
+            @max(ls.pt.y, rs.pt.y),
         );
 
         const max = vec2(
-            std.math.max(min.x, std.math.min(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x)),
-            std.math.max(min.y, std.math.min(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y)),
+            @max(min.x, @min(ls.pt.x + ls.sz.x, rs.pt.x + rs.sz.x)),
+            @max(min.y, @min(ls.pt.y + ls.sz.y, rs.pt.y + rs.sz.y)),
         );
 
         return .{ .pt = min, .sz = max.sub(min) };
@@ -1849,7 +1849,7 @@ pub const TextBuffer = struct {
     pub fn append(self: *TextBuffer, str: []const u8) bool {
         var dst = self.text.ptr[self.text.len..self.cap];
 
-        const count = std.math.min(dst.len, str.len);
+        const count = @min(dst.len, str.len);
 
         assert(count == str.len);
 
@@ -1914,7 +1914,7 @@ fn Pool(comptime N: u32) type {
                 // First frame, find first free slot
                 for (self.items, 0..) |item, index| {
                     if (item.id == 0) {
-                        slot = @intCast(PoolSlot, index);
+                        slot = @as(PoolSlot, @intCast(index));
                         break;
                     }
                 }
@@ -1925,7 +1925,7 @@ fn Pool(comptime N: u32) type {
                 for (self.items, 0..) |item, index| {
                     if (item.last_update < frame) {
                         frame = item.last_update;
-                        slot = @intCast(PoolSlot, index);
+                        slot = @as(PoolSlot, @intCast(index));
                     }
                 }
             }
@@ -1940,7 +1940,7 @@ fn Pool(comptime N: u32) type {
 
         pub fn getSlot(self: *Self, id: Id) ?PoolSlot {
             for (self.items, 0..) |item, index| {
-                if (item.id == id) return @intCast(PoolSlot, index);
+                if (item.id == id) return @as(PoolSlot, @intCast(index));
             }
 
             return null;
@@ -2000,11 +2000,11 @@ fn BitSet(comptime Struct: type) type {
         }
 
         pub inline fn toInt(self: Struct) Int {
-            return @bitCast(Int, self);
+            return @as(Int, @bitCast(self));
         }
 
         pub inline fn fromInt(value: Int) Struct {
-            return @bitCast(Struct, value);
+            return @as(Struct, @bitCast(value));
         }
 
         pub inline fn unionWith(a: Struct, b: Struct) Struct {

@@ -76,7 +76,7 @@ pub fn main() !void {
 
                 c.SDL_MOUSEMOTION => input.mouseMove(.{ .x = e.motion.x, .y = e.motion.y }),
                 c.SDL_MOUSEWHEEL => input.scroll(.{ .x = 0, .y = e.wheel.y * -30 }),
-                c.SDL_TEXTINPUT => input.textZ(@ptrCast([*:0]const u8, &e.text.text)),
+                c.SDL_TEXTINPUT => input.textZ(@as([*:0]const u8, @ptrCast(&e.text.text))),
 
                 c.SDL_MOUSEBUTTONDOWN => {
                     const b = button_map[e.button.button & 0xff];
@@ -89,12 +89,12 @@ pub fn main() !void {
                 },
 
                 c.SDL_KEYDOWN => {
-                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
+                    const k = @as(usize, @intCast(e.key.keysym.sym & 0xff));
                     input.keyDown(key_map[k]);
                 },
 
                 c.SDL_KEYUP => {
-                    const k = @intCast(usize, e.key.keysym.sym & 0xff);
+                    const k = @as(usize, @intCast(e.key.keysym.sym & 0xff));
                     input.keyUp(key_map[k]);
                 },
 

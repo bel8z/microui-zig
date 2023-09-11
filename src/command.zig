@@ -90,7 +90,7 @@ pub const Command = union(CommandType) {
                 enc.pos = text.pos;
                 enc.font = FontEncoding.encode(text.font);
                 enc.color = text.color;
-                enc.len = @intCast(u32, text.str.len);
+                enc.len = @as(u32, @intCast(text.str.len));
                 assert(enc.font.decode() == text.font);
 
                 // Store text
@@ -102,7 +102,7 @@ pub const Command = union(CommandType) {
                 assert(data.len <= std.math.maxInt(u32));
                 assert(size >= meta_size + data.len);
                 assert(buf.len - meta_size >= data.len);
-                std.mem.writeIntLittle(u32, dst[0..meta_size], @intCast(u32, data.len));
+                std.mem.writeIntLittle(u32, dst[0..meta_size], @as(u32, @intCast(data.len)));
                 std.mem.copy(u8, dst[meta_size..], data);
             },
             inline else => |*payload| {
@@ -161,27 +161,27 @@ pub const Command = union(CommandType) {
     fn payloadSize(cmd: Command) u32 {
         const size = switch (cmd) {
             .None => unreachable,
-            .Text => |text| std.mem.alignForward(@sizeOf(TextEncoding) + text.str.len, alignment),
-            .User => |data| std.mem.alignForward(@sizeOf(u32) + data.len, alignment),
+            .Text => |text| std.mem.alignForward(u32, @as(u32, @intCast(@sizeOf(TextEncoding) + text.str.len)), alignment),
+            .User => |data| std.mem.alignForward(u32, @as(u32, @intCast(@sizeOf(u32) + data.len)), alignment),
             inline else => |payload| @sizeOf(@TypeOf(payload)),
         };
 
         assert(std.mem.isAligned(size, alignment));
 
-        return @intCast(u32, size);
+        return @as(u32, @intCast(size));
     }
 
     inline fn encodeTag(tag: Command, buf: []u8) void {
         assert(buf.len == tag_size);
-        const int = @enumToInt(@as(CommandType, tag));
+        const int = @intFromEnum(@as(CommandType, tag));
         std.mem.writeIntLittle(u32, buf[0..tag_size], int);
     }
 
     inline fn decodeTag(buf: []const u8) CommandType {
         assert(buf.len == tag_size);
-        return @intToEnum(
+        return @as(
             CommandType,
-            std.mem.readIntLittle(u32, buf[0..tag_size]),
+            @enumFromInt(std.mem.readIntLittle(u32, buf[0..tag_size])),
         );
     }
 
@@ -199,11 +199,11 @@ pub const Command = union(CommandType) {
             ptr: u32,
 
             pub fn encode(ptr: *const Font) FontEncoding {
-                return .{ .ptr = @intCast(@ptrToInt(ptr), u32) };
+                return .{ .ptr = @as(@intFromPtr(ptr), @intCast(u32)) };
             }
 
             fn decode(enc: FontEncoding) *const Font {
-                return @intToPtr(*const Font, enc);
+                return @as(*const Font, @ptrFromInt(enc));
             }
         },
         @sizeOf(u64) => extern struct {
@@ -211,16 +211,16 @@ pub const Command = union(CommandType) {
             cd: u32,
 
             pub fn encode(ptr: *const Font) FontEncoding {
-                const int = @ptrToInt(ptr);
+                const int = @intFromPtr(ptr);
                 return .{
-                    .ab = @intCast(u32, (int >> 32) & 0xFFFFFFFF),
-                    .cd = @intCast(u32, int & 0xFFFFFFFF),
+                    .ab = @as(u32, @intCast((int >> 32) & 0xFFFFFFFF)),
+                    .cd = @as(u32, @intCast(int & 0xFFFFFFFF)),
                 };
             }
 
             pub fn decode(enc: FontEncoding) *const Font {
-                const int = @intCast(usize, enc.ab) << 32 | @intCast(usize, enc.cd);
-                return @intToPtr(*const Font, int);
+                const int = @as(usize, @intCast(enc.ab)) << 32 | @as(usize, @intCast(enc.cd));
+                return @as(*const Font, @ptrFromInt(int));
             }
         },
         else => {},

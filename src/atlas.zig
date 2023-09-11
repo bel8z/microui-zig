@@ -8,14 +8,14 @@ pub const height = 128;
 pub const white = mu.rect(125, 68, 3, 3);
 pub const text_height = 18;
 
-const font_start = @enumToInt(mu.Icon.Expanded) + 1;
+const font_start = @intFromEnum(mu.Icon.Expanded) + 1;
 
 pub inline fn fullWhite() mu.Rect {
     return atlas[white];
 }
 
 pub fn getIcon(id: mu.Icon) mu.Rect {
-    const index = @enumToInt(id);
+    const index = @intFromEnum(id);
 
     if (index >= font_start) {
         assert(false);
@@ -42,10 +42,10 @@ pub fn getTextWidth(text: []const u8) i32 {
 
 const atlas = init: {
     var value: [133]mu.Rect = undefined;
-    value[@enumToInt(mu.Icon.Close)] = mu.rect(88, 68, 16, 16);
-    value[@enumToInt(mu.Icon.Check)] = mu.rect(0, 0, 18, 18);
-    value[@enumToInt(mu.Icon.Collapsed)] = mu.rect(113, 68, 5, 7);
-    value[@enumToInt(mu.Icon.Expanded)] = mu.rect(118, 68, 7, 5);
+    value[@intFromEnum(mu.Icon.Close)] = mu.rect(88, 68, 16, 16);
+    value[@intFromEnum(mu.Icon.Check)] = mu.rect(0, 0, 18, 18);
+    value[@intFromEnum(mu.Icon.Collapsed)] = mu.rect(113, 68, 5, 7);
+    value[@intFromEnum(mu.Icon.Expanded)] = mu.rect(118, 68, 7, 5);
     value[font_start + 32] = mu.rect(84, 68, 2, 17);
     value[font_start + 33] = mu.rect(39, 68, 3, 17);
     value[font_start + 34] = mu.rect(114, 51, 5, 17);

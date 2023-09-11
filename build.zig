@@ -48,10 +48,11 @@ pub fn build(b: *Builder) void {
             .target = target,
             .optimize = optimize,
         });
-        lib.install();
         lib.linkLibC();
-        lib.addIncludePath("src");
-        lib.addCSourceFile("src/microui.c", &flags);
+        lib.addIncludePath(.{ .path = "src" });
+        lib.addCSourceFile(.{ .file = .{ .path = "src/microui.c" }, .flags = &flags });
+
+        b.installArtifact(lib);
 
         const demo_c = b.addExecutable(.{
             .name = "microui_demo_c",
@@ -60,9 +61,8 @@ pub fn build(b: *Builder) void {
         });
 
         demo_c.subsystem = .Windows;
-        demo_c.install();
-        demo_c.addIncludePath("src");
-        demo_c.addIncludePath("demo");
+        demo_c.addIncludePath(.{ .path = "src" });
+        demo_c.addIncludePath(.{ .path = "demo" });
         demo_c.addCSourceFiles(
             &.{
                 "demo/main.c",
@@ -80,11 +80,13 @@ pub fn build(b: *Builder) void {
         demo_c.linkSystemLibrary("version");
         demo_c.linkSystemLibrary("oleaut32");
         demo_c.linkSystemLibrary("ole32");
-        demo_c.addIncludePath(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable);
-        demo_c.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable);
-        demo_c.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable);
+        demo_c.addIncludePath(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable });
+        demo_c.addObjectFile(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable });
+        demo_c.addObjectFile(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable });
 
-        const run_cmd = demo_c.run();
+        b.installArtifact(demo_c);
+
+        const run_cmd = b.addRunArtifact(demo_c);
         run_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| run_cmd.addArgs(args);
 
@@ -103,9 +105,8 @@ pub fn build(b: *Builder) void {
         });
 
         demo_sdl.subsystem = .Windows;
-        demo_sdl.install();
-        demo_sdl.addIncludePath("src");
-        demo_sdl.addIncludePath("demo");
+        demo_sdl.addIncludePath(.{ .path = "src" });
+        demo_sdl.addIncludePath(.{ .path = "demo" });
         demo_sdl.addModule("microui", microui);
         demo_sdl.linkLibC();
         demo_sdl.linkSystemLibrary("gdi32");
@@ -116,11 +117,13 @@ pub fn build(b: *Builder) void {
         demo_sdl.linkSystemLibrary("version");
         demo_sdl.linkSystemLibrary("oleaut32");
         demo_sdl.linkSystemLibrary("ole32");
-        demo_sdl.addIncludePath(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable);
-        demo_sdl.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable);
-        demo_sdl.addObjectFile(std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable);
+        demo_sdl.addIncludePath(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/include" }) catch unreachable });
+        demo_sdl.addObjectFile(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2.a" }) catch unreachable });
+        demo_sdl.addObjectFile(.{ .path = std.mem.concat(b.allocator, u8, &.{ sdl_path, "/lib/libSDL2main.a" }) catch unreachable });
 
-        const run_cmd = demo_sdl.run();
+        b.installArtifact(demo_sdl);
+
+        const run_cmd = b.addRunArtifact(demo_sdl);
         run_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| run_cmd.addArgs(args);
 
@@ -139,14 +142,15 @@ pub fn build(b: *Builder) void {
         });
 
         demo_wgl.subsystem = .Windows;
-        demo_wgl.install();
-        demo_wgl.addIncludePath("src");
-        demo_wgl.addIncludePath("demo");
+        demo_wgl.addIncludePath(.{ .path = "src" });
+        demo_wgl.addIncludePath(.{ .path = "demo" });
         demo_wgl.addModule("microui", microui);
         demo_wgl.linkLibC();
         demo_wgl.linkSystemLibrary("opengl32");
 
-        const run_cmd = demo_wgl.run();
+        b.installArtifact(demo_wgl);
+
+        const run_cmd = b.addRunArtifact(demo_wgl);
         run_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| run_cmd.addArgs(args);
 
